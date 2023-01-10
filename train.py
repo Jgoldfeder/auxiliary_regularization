@@ -307,7 +307,9 @@ parser.add_argument('--dual-weights', type=float, nargs='+', default=[0.5,0.5],
 parser.add_argument('--metabalance', action='store_true', default=False,
                     help='Use metabalance mode.')   
 parser.add_argument('--pcgrad', action='store_true', default=False,
-                    help='Use pcgrad mode.')                                       
+                    help='Use pcgrad mode.')   
+parser.add_argument('--bottleneck', type=int, default=64, )
+                                    
 def _parse_args():
     # Do we have a config file to parse?
     args_config, remaining = config_parser.parse_known_args()
@@ -343,7 +345,7 @@ def main():
         else: 
             _logger.warning("You've requested to log metrics to wandb but package not found. "
                             "Metrics not being logged to wandb, try `pip install wandb`")
-             
+        args.experiment+=args.name
     args.prefetcher = not args.no_prefetcher
     args.distributed = False
     if 'WORLD_SIZE' in os.environ:
@@ -416,7 +418,7 @@ def main():
         model = convert_splitbn_model(model, max(num_aug_splits, 2))
 
     if args.dual:
-        model = dual.DualModel(model,args)
+        model = dual.DualModel(model,args,args.bottleneck)
 
     # move model to GPU, enable channels last layout if set
     model.cuda()
