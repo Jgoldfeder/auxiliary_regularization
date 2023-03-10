@@ -19,10 +19,11 @@ from collections import OrderedDict
 from contextlib import suppress
 from datetime import datetime
 import pdb 
-
+import pcgrad 
 import torch
 import torch.nn as nn
 import torchvision.utils
+import aircraft
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
 from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
@@ -35,7 +36,7 @@ from timm.scheduler import create_scheduler
 from timm.utils import ApexScaler, NativeScaler
 import dual 
 import metabalance
-
+import random as rm
 try:
     from apex import amp
     from apex.parallel import DistributedDataParallel as ApexDDP
@@ -301,6 +302,8 @@ parser.add_argument('--log-wandb', action='store_true', default=False,
 # auxiliary task parameters
 parser.add_argument('--dual', action='store_true', default=False,
                     help='Use dual mode.')
+parser.add_argument('--neighbor', action='store_true', default=False,
+                    help='Use dual mode.')                    
 parser.add_argument('--dual-weights', type=float, nargs='+', default=[0.5,0.5],
                     help='task weights for dual mode.')
 
@@ -334,7 +337,6 @@ def _parse_args():
 def main():
     setup_default_logging()
     args, args_text = _parse_args()
-    
     if args.log_wandb:
         if has_wandb:
             if args.name != '':
@@ -416,110 +418,44 @@ def main():
     if args.split_bn:
         assert num_aug_splits > 1 or args.resplit
         model = convert_splitbn_model(model, max(num_aug_splits, 2))
-
-    if args.dual:
-        model = dual.DualModel(model,args,args.bottleneck)
-
-    # move model to GPU, enable channels last layout if set
-    model.cuda()
-    if args.channels_last:
-        model = model.to(memory_format=torch.channels_last)
-
-    # setup synchronized BatchNorm for distributed training
-    if args.distributed and args.sync_bn:
-        assert not args.split_bn
-        if has_apex and use_amp == 'apex':
-            # Apex SyncBN preferred unless native amp is activated
-            model = convert_syncbn_model(model)
-        else:
-            model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        if args.local_rank == 0:
-            _logger.info(
-                'Converted model to use Synchronized BatchNorm. WARNING: You may have issues if using '
-                'zero initialized BN layers (enabled by default for ResNets) while sync-bn enabled.')
-
-    if args.torchscript:
-        assert not use_amp == 'apex', 'Cannot use APEX AMP with torchscripted model'
-        assert not args.sync_bn, 'Cannot use SyncBatchNorm with torchscripted model'
-        model = torch.jit.script(model)
-
-    optimizer = create_optimizer_v2(model, **optimizer_kwargs(cfg=args))
-
-    # setup automatic mixed-precision (AMP) loss scaling and op casting
-    amp_autocast = suppress  # do nothing
-    loss_scaler = None
-    if use_amp == 'apex':
-        model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
-        loss_scaler = ApexScaler()
-        if args.local_rank == 0:
-            _logger.info('Using NVIDIA APEX AMP. Training in mixed precision.')
-    elif use_amp == 'native':
-        amp_autocast = torch.cuda.amp.autocast
-        loss_scaler = NativeScaler()
-        if args.local_rank == 0:
-            _logger.info('Using native Torch AMP. Training in mixed precision.')
-    else:
-        if args.local_rank == 0:
-            _logger.info('AMP not enabled. Training in float32.')
-
-    # optionally resume from a checkpoint
-    resume_epoch = None
-    if args.resume:
-        resume_epoch = resume_checkpoint(
-            model, args.resume,
-            optimizer=None if args.no_resume_opt else optimizer,
-            loss_scaler=None if args.no_resume_opt else loss_scaler,
-            log_info=args.local_rank == 0)
-
-    # setup exponential moving average of model weights, SWA could be used here too
-    model_ema = None
-    if args.model_ema:
-        # Important to create EMA model after cuda(), DP wrapper, and AMP but before SyncBN and DDP wrapper
-        model_ema = ModelEmaV2(
-            model, decay=args.model_ema_decay, device='cpu' if args.model_ema_force_cpu else None)
-        if args.resume:
-            load_checkpoint(model_ema.module, args.resume, use_ema=True)
-
-    # setup distributed training
-    if args.distributed:
-        if has_apex and use_amp == 'apex':
-            # Apex DDP preferred unless native amp is activated
-            if args.local_rank == 0:
-                _logger.info("Using NVIDIA APEX DistributedDataParallel.")
-            model = ApexDDP(model, delay_allreduce=True)
-        else:
-            if args.local_rank == 0:
-                _logger.info("Using native Torch DistributedDataParallel.")
-            model = NativeDDP(model, device_ids=[args.local_rank], broadcast_buffers=not args.no_ddp_bb)
-        # NOTE: EMA model does not need to be wrapped by DDP
-
-    # setup learning rate schedule and starting epoch
-    lr_scheduler, num_epochs = create_scheduler(args, optimizer)
-    start_epoch = 0
-    if args.start_epoch is not None:
-        # a specified start_epoch will always override the resume epoch
-        start_epoch = args.start_epoch
-    elif resume_epoch is not None:
-        start_epoch = resume_epoch
-    if lr_scheduler is not None and start_epoch > 0:
-        lr_scheduler.step(start_epoch)
-
-    if args.local_rank == 0:
-        _logger.info('Scheduled epochs: {}'.format(num_epochs))
-
     # create the train and eval datasets
-    dataset_train = create_dataset(
-        args.dataset, root=args.data_dir, split=args.train_split, is_training=True,
-        class_map=args.class_map,
-        download=args.dataset_download,
-        batch_size=args.batch_size,
-        repeats=args.epoch_repeats)
-    dataset_eval = create_dataset(
-        args.dataset, root=args.data_dir, split=args.val_split, is_training=False,
-        class_map=args.class_map,
-        download=args.dataset_download,
-        batch_size=args.batch_size)
+    if args.dataset != "aircraft":
+        dataset_train = create_dataset(
+            args.dataset, root=args.data_dir, split=args.train_split, is_training=True,
+            class_map=args.class_map,
+            download=args.dataset_download,
+            batch_size=args.batch_size,
+            repeats=args.epoch_repeats)
+        dataset_eval = create_dataset(
+            args.dataset, root=args.data_dir, split=args.val_split, is_training=False,
+            class_map=args.class_map,
+            download=args.dataset_download,
+            batch_size=args.batch_size)
 
+    else:
+        dataset_train = aircraft.Aircraft('./aircraft', train=True, download=args.dataset_download)
+        dataset_eval = aircraft.Aircraft('./aircraft', train=False, download=args.dataset_download)
+    class ClassSampler():
+        def __init__(self,data):
+            divisions = {}
+            c  =0
+            for b_x,b_y in data:
+                #pdb.set_trace()
+                for i in range(b_y.shape[0]):
+                    x,y=b_x[i],b_y[i]
+                    y=y.item()
+                    c+=1
+                    print("hello",c,y)
+                    if y not in divisions:
+                        divisions[y] = [] 
+                    divisions[y].append(x.cpu())
+            self.data = divisions
+            self.classes = sorted([x for x in self.data.keys()])
+        def sample(self):
+            images = []
+            for c in self.classes:
+                images.append(rm.choice(self.data[c]))
+            return images
     # setup mixup / cutmix
     collate_fn = None
     mixup_fn = None
@@ -587,6 +523,129 @@ def main():
         crop_pct=data_config['crop_pct'],
         pin_memory=args.pin_mem,
     )
+    if args.neighbor:
+        class_sampler = ClassSampler(loader_train)
+
+    if args.dual:
+        model = dual.DualModel(model,args,args.bottleneck)
+        #model.criterion = dual.ProxyLoss(nn.CrossEntropyLoss(),args.dual_weights,args.num_classes)
+    if args.neighbor:
+        model = dual.AttModel(model,class_sampler)
+
+    # move model to GPU, enable channels last layout if set
+    model.cuda()
+    if args.channels_last:
+        model = model.to(memory_format=torch.channels_last)
+
+    # setup synchronized BatchNorm for distributed training
+    if args.distributed and args.sync_bn:
+        assert not args.split_bn
+        if has_apex and use_amp == 'apex':
+            # Apex SyncBN preferred unless native amp is activated
+            model = convert_syncbn_model(model)
+        else:
+            model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        if args.local_rank == 0:
+            _logger.info(
+                'Converted model to use Synchronized BatchNorm. WARNING: You may have issues if using '
+                'zero initialized BN layers (enabled by default for ResNets) while sync-bn enabled.')
+
+    if args.torchscript:
+        assert not use_amp == 'apex', 'Cannot use APEX AMP with torchscripted model'
+        assert not args.sync_bn, 'Cannot use SyncBatchNorm with torchscripted model'
+        model = torch.jit.script(model)
+    if args.metabalance:
+        #optimizer1 = create_optimizer_v2(model.task_modules, **optimizer_kwargs(cfg=args))
+        optimizer2 = create_optimizer_v2(model.shared_modules, **optimizer_kwargs(cfg=args))  
+        optimizer1 = create_optimizer_v2(model.fc, **optimizer_kwargs(cfg=args))
+
+        optimizer = optimizer1
+        metabalancer = metabalance.MetaBalance(model.shared_modules.parameters())
+
+  
+    else:
+        optimizer = create_optimizer_v2(model, **optimizer_kwargs(cfg=args))
+    if args.dual:
+
+        secondary_optim = torch.optim.Adam(model.new.parameters(),lr=1e-3)#torch.optim.SGD(model.decoder.parameters(),lr=0.01,momentum=0.9, weight_decay=1e-4)#create_optimizer_v2(model.shared_modules, **optimizer_kwargs(cfg=args)) 
+        third_optim = torch.optim.Adam(model.new.parameters(),lr=1e-4)
+    # setup automatic mixed-precision (AMP) loss scaling and op casting
+    amp_autocast = suppress  # do nothing
+    loss_scaler = None
+    if use_amp == 'apex':
+        if args.metabalance:
+            model, (optimizer1,optimizer2) = amp.initialize(model, (optimizer1,optimizer2), opt_level='O1')
+            #model, optimizer2 = amp.initialize(model, optimizer2, opt_level='O1')
+        else:
+            model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
+        loss_scaler = ApexScaler()
+        if args.local_rank == 0:
+            _logger.info('Using NVIDIA APEX AMP. Training in mixed precision.')
+    elif use_amp == 'native':
+        amp_autocast = torch.cuda.amp.autocast
+        loss_scaler = NativeScaler()
+        if args.local_rank == 0:
+            _logger.info('Using native Torch AMP. Training in mixed precision.')
+    else:
+        if args.local_rank == 0:
+            _logger.info('AMP not enabled. Training in float32.')
+
+    # optionally resume from a checkpoint
+    resume_epoch = None
+    if args.resume:
+        resume_epoch = resume_checkpoint(
+            model, args.resume,
+            optimizer=None if args.no_resume_opt else optimizer,
+            loss_scaler=None if args.no_resume_opt else loss_scaler,
+            log_info=args.local_rank == 0)
+
+    # setup exponential moving average of model weights, SWA could be used here too
+    model_ema = None
+    if args.model_ema:
+        # Important to create EMA model after cuda(), DP wrapper, and AMP but before SyncBN and DDP wrapper
+        model_ema = ModelEmaV2(
+            model, decay=args.model_ema_decay, device='cpu' if args.model_ema_force_cpu else None)
+        if args.resume:
+            load_checkpoint(model_ema.module, args.resume, use_ema=True)
+
+    # setup distributed training
+    if args.distributed:
+        if has_apex and use_amp == 'apex':
+            # Apex DDP preferred unless native amp is activated
+            if args.local_rank == 0:
+                _logger.info("Using NVIDIA APEX DistributedDataParallel.")
+            model = ApexDDP(model, delay_allreduce=True)
+        else:
+            if args.local_rank == 0:
+                _logger.info("Using native Torch DistributedDataParallel.")
+            model = NativeDDP(model, device_ids=[args.local_rank], broadcast_buffers=not args.no_ddp_bb)
+        # NOTE: EMA model does not need to be wrapped by DDP
+
+    # setup learning rate schedule and starting epoch
+    if args.metabalance:
+        lr_scheduler1, num_epochs = create_scheduler(args, optimizer1)
+        lr_scheduler2, num_epochs = create_scheduler(args, optimizer2)
+        lr_scheduler=lr_scheduler1
+    else:
+        lr_scheduler, num_epochs = create_scheduler(args, optimizer)
+    start_epoch = 0
+    if args.start_epoch is not None:
+        # a specified start_epoch will always override the resume epoch
+        start_epoch = args.start_epoch
+    elif resume_epoch is not None:
+        start_epoch = resume_epoch
+    if args.metabalance:
+        if lr_scheduler1 is not None and start_epoch > 0:
+            lr_scheduler1.step(start_epoch)
+            lr_scheduler2.step(start_epoch)
+    else:
+        if lr_scheduler is not None and start_epoch > 0:
+            lr_scheduler.step(start_epoch)
+
+    if args.local_rank == 0:
+        _logger.info('Scheduled epochs: {}'.format(num_epochs))
+    if args.pcgrad:
+        optimizer = pcgrad.PCGrad(optimizer)
 
     # setup loss function
     if args.jsd_loss:
@@ -608,7 +667,8 @@ def main():
     
     if args.dual:
         train_loss_fn = dual.DualLoss(train_loss_fn,args.dual_weights,args.num_classes)
-    
+        #train_loss_fn = model.criterion
+
     train_loss_fn = train_loss_fn.cuda()
     validate_loss_fn = nn.CrossEntropyLoss().cuda()
 
@@ -634,18 +694,26 @@ def main():
             checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing, max_history=args.checkpoint_hist)
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
-
+    if args.dual:
+        model.secondary_optim=secondary_optim
+        model.third_optim=third_optim
     try:
         for epoch in range(start_epoch, num_epochs):
+            #if epoch == 30:
+            #    print("switching LR on decoder")
+            #    model.secondary_optim = model.third_optim
             if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
                 loader_train.sampler.set_epoch(epoch)
-            train_function = train_one_epoch
             if args.metabalance:
-                train_one_epoch_metabalance
-            train_metrics = train_function(
-                epoch, model, loader_train, optimizer, train_loss_fn, args,
-                lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
-                amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+                train_metrics = train_one_epoch_metabalance(
+                    epoch, model, loader_train, (optimizer1,optimizer2,metabalancer), train_loss_fn, args,
+                    lr_scheduler=(lr_scheduler1,lr_scheduler2), saver=saver, output_dir=output_dir,
+                    amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+            else:
+                train_metrics = train_one_epoch(
+                    epoch, model, loader_train, optimizer, train_loss_fn, args,
+                    lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
+                    amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
 
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if args.local_rank == 0:
@@ -663,17 +731,24 @@ def main():
 
             if lr_scheduler is not None:
                 # step LR for next epoch
-                lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
+                if args.metabalance:
+                    lr_scheduler1.step(epoch + 1, eval_metrics[eval_metric])
+                    lr_scheduler2.step(epoch + 1, eval_metrics[eval_metric])
+                else:
+                    lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
             if output_dir is not None:
+                eval_metrics["best_acc"] = best_metric
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
                     write_header=best_metric is None, log_wandb=args.log_wandb and has_wandb)
 
             if saver is not None:
                 # save proper checkpoint with eval metric
+                
                 save_metric = eval_metrics[eval_metric]
                 best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
+
 
     except KeyboardInterrupt:
         pass
@@ -717,12 +792,19 @@ def train_one_epoch(
                 output = model(input,True)
             else:
                 output = model(input)
-            loss = loss_fn(output, target)
+            if args.pcgrad:
+                losses = loss_fn(output, target,True)
+                loss = losses[0]+losses[1]
+            else:
+                loss = loss_fn(output, target)
 
         if not args.distributed:
             losses_m.update(loss.item(), input.size(0))
 
         optimizer.zero_grad()
+        if args.dual:
+            model.secondary_optim.zero_grad()
+        model.zero_grad()
         if loss_scaler is not None:
             loss_scaler(
                 loss, optimizer,
@@ -730,13 +812,17 @@ def train_one_epoch(
                 parameters=model_parameters(model, exclude_head='agc' in args.clip_mode),
                 create_graph=second_order)
         else:
-            loss.backward(create_graph=second_order)
+            if args.pcgrad:
+                optimizer.pc_backward(losses)
+            else:
+                loss.backward(create_graph=second_order)
             if args.clip_grad is not None:
                 dispatch_clip_grad(
                     model_parameters(model, exclude_head='agc' in args.clip_mode),
                     value=args.clip_grad, mode=args.clip_mode)
             optimizer.step()
-
+            if args.dual:
+                model.secondary_optim.step()
         if model_ema is not None:
             model_ema.update(model)
 
@@ -744,7 +830,11 @@ def train_one_epoch(
         num_updates += 1
         batch_time_m.update(time.time() - end)
         if last_batch or batch_idx % args.log_interval == 0:
-            lrl = [param_group['lr'] for param_group in optimizer.param_groups]
+            if args.pcgrad:
+                opt_to_log = optimizer._optim
+            else:
+                opt_to_log = optimizer
+            lrl = [param_group['lr'] for param_group in opt_to_log.param_groups]
             lr = sum(lrl) / len(lrl)
 
             if args.distributed:
@@ -789,6 +879,8 @@ def train_one_epoch(
     if hasattr(optimizer, 'sync_lookahead'):
         optimizer.sync_lookahead()
 
+    if args.dual:
+        loss_fn.update_labels()
     return OrderedDict([('loss', losses_m.avg)])
 
 
@@ -797,13 +889,16 @@ def train_one_epoch_metabalance(
         lr_scheduler=None, saver=None, output_dir=None, amp_autocast=suppress,
         loss_scaler=None, model_ema=None, mixup_fn=None):
 
+    optimizer1,optimizer2,metabalancer = optimizer
+    lr_scheduler1,lr_scheduler2 = lr_scheduler
+
     if args.mixup_off_epoch and epoch >= args.mixup_off_epoch:
         if args.prefetcher and loader.mixup_enabled:
             loader.mixup_enabled = False
         elif mixup_fn is not None:
             mixup_fn.mixup_enabled = False
 
-    second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
+    second_order = hasattr(optimizer1, 'is_second_order') and optimizer1.is_second_order
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     losses_m = AverageMeter()
@@ -823,30 +918,58 @@ def train_one_epoch_metabalance(
         if args.channels_last:
             input = input.contiguous(memory_format=torch.channels_last)
 
-        with amp_autocast():
-            if args.dual:
-                output = model(input,True)
-            else:
-                output = model(input)
-            loss = loss_fn(output, target)
+        #with amp_autocast():
+        if args.dual:
+            output = model(input,True)
+        else:
+            output = model(input)
+        loss = loss_fn(output, target)
 
         if not args.distributed:
             losses_m.update(loss.item(), input.size(0))
 
-        optimizer.zero_grad()
-        if loss_scaler is not None:
-            loss_scaler(
-                loss, optimizer,
-                clip_grad=args.clip_grad, clip_mode=args.clip_mode,
-                parameters=model_parameters(model, exclude_head='agc' in args.clip_mode),
-                create_graph=second_order)
+        model.zero_grad()
+        optimizer1.zero_grad()
+        optimizer2.zero_grad()
+        if args.dual:
+            model.secondary_optim.zero_grad()
+        simple_mode = True
+        if simple_mode:
+            loss.backward(retain_graph=True)
         else:
-            loss.backward(create_graph=second_order)
-            if args.clip_grad is not None:
-                dispatch_clip_grad(
-                    model_parameters(model, exclude_head='agc' in args.clip_mode),
-                    value=args.clip_grad, mode=args.clip_mode)
-            optimizer.step()
+            if loss_scaler is not None:
+                loss_scaler(
+                    loss, optimizer1,
+                    clip_grad=args.clip_grad, clip_mode=args.clip_mode,
+                    parameters=model_parameters(model, exclude_head='agc' in args.clip_mode),
+                    create_graph=second_order)
+            else:
+                loss.backward(create_graph=second_order)
+                if args.clip_grad is not None:
+                    dispatch_clip_grad(
+                        model_parameters(model, exclude_head='agc' in args.clip_mode),
+                        value=args.clip_grad, mode=args.clip_mode)
+        optimizer1.step()
+        if args.dual:
+            model.secondary_optim.step()
+        # second pass
+        model.zero_grad()
+        optimizer1.zero_grad()
+        optimizer2.zero_grad()
+
+        #with amp_autocast():
+        if args.dual:
+            output = model(input,True)
+        else:
+            output = model(input)
+        loss = loss_fn(output, target,True)
+
+        metabalancer.step(loss)
+        optimizer2.step()
+
+
+
+
 
         if model_ema is not None:
             model_ema.update(model)
@@ -855,7 +978,7 @@ def train_one_epoch_metabalance(
         num_updates += 1
         batch_time_m.update(time.time() - end)
         if last_batch or batch_idx % args.log_interval == 0:
-            lrl = [param_group['lr'] for param_group in optimizer.param_groups]
+            lrl = [param_group['lr'] for param_group in optimizer1.param_groups]
             lr = sum(lrl) / len(lrl)
 
             if args.distributed:
@@ -891,15 +1014,16 @@ def train_one_epoch_metabalance(
                 last_batch or (batch_idx + 1) % args.recovery_interval == 0):
             saver.save_recovery(epoch, batch_idx=batch_idx)
 
-        if lr_scheduler is not None:
-            lr_scheduler.step_update(num_updates=num_updates, metric=losses_m.avg)
+        if lr_scheduler1 is not None:
+            lr_scheduler1.step_update(num_updates=num_updates, metric=losses_m.avg)
+            lr_scheduler2.step_update(num_updates=num_updates, metric=losses_m.avg)
 
         end = time.time()
         # end for
 
     if hasattr(optimizer, 'sync_lookahead'):
         optimizer.sync_lookahead()
-
+    loss_fn.update_labels()
     return OrderedDict([('loss', losses_m.avg)])
 
 def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
