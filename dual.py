@@ -63,17 +63,15 @@ class DualModel(nn.Module):
                                         nn.ReLU(inplace=True), # hidden layer
                                         nn.Linear(pred_dim, dim)) # output layer
 
-        # TODO: is this necessary?
-        """
-        self.task_modules = nn.ModuleList([self.fc,nn.Sequential(self.simsiam_projector, self.simsiam_predictor)])
+        self.task_modules = nn.ModuleList([self.fc, self.simsiam_projector, self.simsiam_predictor])
 
         self.shared_modules = model
         
         self.old = nn.ModuleList([self.fc,self.model]) # pretrained, original task, original weights
         
         self.new = nn.ModuleList([self.simsiam_predictor, self.simsiam_projector, model]) # new task, new weights
-        """
         
+        return
 
     def forward(self,x,on=False):
         x_main = self.fc(self.model(x))
