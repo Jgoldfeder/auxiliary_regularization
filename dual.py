@@ -18,7 +18,7 @@ class DualModel(nn.Module):
             transforms.RandomGrayscale(p=0.2),
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=5, sigma=(.1, 2.))], p=0.5),
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
+            #transforms.ToTensor(),
             normalize
         ])
         return
