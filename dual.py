@@ -10,7 +10,7 @@ class DualModel(nn.Module):
                                     std=[0.229, 0.224, 0.225])
 
         # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-        self.augmentation = [
+        self.augmentation = transforms.Compose([
             transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
             transforms.RandomApply([
                 transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
@@ -20,7 +20,7 @@ class DualModel(nn.Module):
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize
-        ]
+        ])
         return
     
     def __init__(self, model, args):
