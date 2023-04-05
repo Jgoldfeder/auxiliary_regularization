@@ -93,7 +93,7 @@ class DualLoss(nn.Module):
     def __init__(self,loss,weights,num_classes):
         super(DualLoss, self).__init__()
         self.categorical_loss = loss
-        self.simsiam_criterion = nn.CosineSimilarity(dim=1).cuda(loss.get_device())
+        self.simsiam_criterion = nn.CosineSimilarity(dim=1).cuda()
         self.num_classes = num_classes
         self.weights = weights
     
