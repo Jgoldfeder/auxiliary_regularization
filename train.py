@@ -527,7 +527,7 @@ def main():
         class_sampler = ClassSampler(loader_train)
 
     if args.dual:
-        model = dual.DualModel(model,args,args.bottleneck)
+        model = dual.DualModel(model,args)
         #model.criterion = dual.ProxyLoss(nn.CrossEntropyLoss(),args.dual_weights,args.num_classes)
     if args.neighbor:
         model = dual.AttModel(model,class_sampler)
@@ -879,8 +879,6 @@ def train_one_epoch(
     if hasattr(optimizer, 'sync_lookahead'):
         optimizer.sync_lookahead()
 
-    if args.dual:
-        loss_fn.update_labels()
     return OrderedDict([('loss', losses_m.avg)])
 
 
