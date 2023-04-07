@@ -30,8 +30,6 @@ import torchvision.models as models
 import simsiam.loader
 import simsiam.builder
 
-from timm.data import create_dataset
-
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -240,21 +238,10 @@ def main_worker(gpu, ngpus_per_node, args):
         normalize
     ]
 
-
-    dataset_train = create_dataset(
-        '', root=args.data, split='train', is_training=True,
-        download=True,
-        batch_size=args.batch_size)
-    # dataset_eval = create_dataset(
-    #     '', root=args.data, split='validation', is_training=False,
-    #     download=False,
-    #     batch_size=args.batch_size)
-
-    """
     train_dataset = datasets.ImageFolder(
         traindir,
         simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)))
-    """
+
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
