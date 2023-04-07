@@ -180,7 +180,7 @@ def main_worker(gpu, ngpus_per_node, args):
         torch.cuda.set_device(args.gpu)
         model = model.cuda(args.gpu)
         # comment out the following line for debugging
-        raise NotImplementedError("Only DistributedDataParallel is supported.")
+        # raise NotImplementedError("Only DistributedDataParallel is supported.")
     else:
         # AllGather implementation (batch shuffle, queue update, etc.) in
         # this code only supports DistributedDataParallel.
@@ -238,9 +238,13 @@ def main_worker(gpu, ngpus_per_node, args):
         normalize
     ]
 
+    """
     train_dataset = datasets.ImageFolder(
         traindir,
         simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)))
+    """
+    train_dataset = datasets.CIFAR100(download=True, train=True, root=traindir,\
+                            transform=simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)))
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
