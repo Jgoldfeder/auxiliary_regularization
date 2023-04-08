@@ -261,16 +261,24 @@ def main_worker(gpu, ngpus_per_node, args):
         adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        best_train_loss = 1e6
+        best_train_epoch = -1
+        curr_train_loss = train(train_loader, model, criterion, optimizer, epoch, args)
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': args.arch,
-                'state_dict': model.state_dict(),
-                'optimizer' : optimizer.state_dict(),
-            }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
+            torch.save(model.state_dict(), 'current_contrastive_label_network.pth')
+            # save_checkpoint({
+            #     'epoch': epoch + 1,
+            #     'arch': args.arch,
+            #     'state_dict': model.state_dict(),
+            #     'optimizer' : optimizer.state_dict(),
+            # }, is_best=False, filename='checkpoint.pth.tar')
+        if curr_train_loss < best_train_loss:
+            best_train_loss = curr_train_loss
+            best_train_epoch = epoch
+            torch.save(model.state_dict(), 'best_contrastive_label_network.pth')
+            print('saving on epoch {} with loss {}'.format(best_train_loss, best_train_epoch))
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
@@ -311,6 +319,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
+    
+    return losses.avg
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
