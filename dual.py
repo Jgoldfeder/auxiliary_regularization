@@ -103,4 +103,7 @@ class DualLoss(nn.Module):
         if seperate:
             return [loss1,loss2]
         return loss1 + loss2
+    
+    def update_labels(self):
+        return
 
