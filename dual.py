@@ -52,7 +52,7 @@ class DualLoss(nn.Module):
     def __init__(self,loss,weights,num_classes):
         super(DualLoss, self).__init__()
         # TODO: change dense loss
-        self.dense_loss = nn.CrossEntropyLoss()
+        self.dense_loss = nn.MSELoss()
         self.categorical_loss = loss
         # TODO: change dense labels
         self.dense_labels = torch.tensor(np.load('simsiam/cifar_prototypes.npy'))
