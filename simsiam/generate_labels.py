@@ -10,6 +10,7 @@ import numpy as np
 
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
+from mpl_toolkits import mplot3d
 
 import torch
 import torch.nn as nn
@@ -113,6 +114,7 @@ def main():
     generate_labels(train_loader, model, fine_to_coarse, args)
 
 def generate_labels(train_loader, model, fine_to_coarse, args):
+    """
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     progress = ProgressMeter(
@@ -149,12 +151,14 @@ def generate_labels(train_loader, model, fine_to_coarse, args):
     prototype_by_class = torch.stack(prototype_by_class, dim=0).detach().numpy()
     print(prototype_by_class.shape)
     #np.save('cifar_prototypes.npy', prototype_by_class)
-
+    """
+    prototype_by_class = np.load('cifar_prototypes.npy')
     colors = []
-    for r in [0, 0.5, 1]:
-        for g in [0, 0.5, 1]:
-            for b in [0, 0.5, 1]:
+    for r in [0.1, 0.5, 1]:
+        for g in [0.1, 1]:
+            for b in [0.1, 0.5, 1]:
                 colors.append((r, g, b))
+    colors.append((0.75, 0.75, 0.5)); colors.append((0.25, 0.25, 0.5))
 
     # # Compute t-SNE embeddings
     tsne_embeddings = TSNE(n_components=2).fit_transform(prototype_by_class)
@@ -162,7 +166,7 @@ def generate_labels(train_loader, model, fine_to_coarse, args):
     plt.scatter(tsne_embeddings[:, 0], tsne_embeddings[:, 1], \
         c=[colors[fine_to_coarse[i]] for i in range(100)])
     plt.savefig('tsne_embeddings.png')
-    #plt.show()
+    plt.show()
 
     return
 
