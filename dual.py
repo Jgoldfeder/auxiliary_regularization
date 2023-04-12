@@ -65,7 +65,7 @@ class DualLoss(nn.Module):
             dense_target.append(self.dense_labels[t])
         dense_target = torch.stack(dense_target).cuda()
         loss1 = self.categorical_loss(output[0],target)*self.weights[0]
-        loss2 = self.dense_loss(output[1], dense_target, torch.ones(dense_target.shape[0]))*self.weights[1]
+        loss2 = self.dense_loss(output[1], dense_target, torch.ones(dense_target.shape[0]).cuda())*self.weights[1]
         if seperate:
             return [loss1,loss2]
         return loss1 + loss2
