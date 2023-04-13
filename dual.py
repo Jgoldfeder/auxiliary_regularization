@@ -50,7 +50,7 @@ class DualModel(nn.Module):
 
 class DualLoss(nn.Module):
     def construct_dense_labels(self, num_classes):
-        the_array = np.zeros(num_classes, 64*32)
+        the_array = np.zeros((num_classes, 64*32))
         for i in range(64*32):
             the_array[min(i // 20, 99), i] = 1
         return the_array.astype("float32")
