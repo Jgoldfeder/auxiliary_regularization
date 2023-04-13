@@ -66,7 +66,7 @@ class DualLoss(nn.Module):
         # # make them binary, since that did so well
         # dense_binary_embeddings = np.where(dense_embeddings > 0, 1, 0)
 
-        dense_binary_embeddings = construct_dense_labels(num_classes)#np.random.choice([0, 1], size=(num_classes,64*32)).astype("float32")
+        dense_binary_embeddings = self.construct_dense_labels(num_classes)#np.random.choice([0, 1], size=(num_classes,64*32)).astype("float32")
         import matplotlib.pyplot as plt
         plt.imsave('dense binary embeddings.png', dense_binary_embeddings, cmap='gray')
         #plt.show()
