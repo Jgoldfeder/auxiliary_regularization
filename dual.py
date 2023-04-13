@@ -52,10 +52,19 @@ class DualLoss(nn.Module):
     def __init__(self,loss,weights,num_classes):
         super(DualLoss, self).__init__()
         # TODO: change dense loss
-        self.dense_loss = nn.MSELoss()
+        self.dense_loss = nn.BCEWithLogitsLoss()
         self.categorical_loss = loss
         # TODO: change dense labels
-        self.dense_labels = torch.tensor(np.load('simsiam/cifar_prototypes.npy'))
+        # labels are contrastively learned, but they are floats
+        dense_embeddings = np.load('simsiam/cifar_prototypes.npy')
+        dense_embeddings = (dense_embeddings - np.mean(dense_embeddings)) / np.std(dense_embeddings)
+        # make them binary, since that did so well
+        dense_binary_embeddings = np.where(dense_embeddings > 0, 1, 0)
+        import matplotlib.pyplot as plt
+        plt.imsave('dense binary embeddings.png', dense_binary_embeddings, cmap='gray')
+        plt.show()
+
+        self.dense_labels = torch.tensor(dense_binary_embeddings.astype('float32'))
         self.num_classes = num_classes
         self.weights = weights
     
