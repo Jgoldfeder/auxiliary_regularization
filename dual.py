@@ -49,24 +49,22 @@ class DualModel(nn.Module):
         return x1
 
 class DualLoss(nn.Module):
-    def construct_dense_labels(self, num_classes):
-        the_array = np.zeros((num_classes, 64*32))
-        for i in range(64*32):
-            the_array[min(i // 20, 99), i] = 1
-        return the_array.astype("float32")
+    # def construct_dense_labels(self, num_classes):
+    #     the_array = np.zeros((num_classes, 64*32))
+    #     for i in range(64*32):
+    #         the_array[min(i // 20, 99), i] = 1
+    #     return the_array.astype("float32")
     def __init__(self,loss,weights,num_classes):
         super(DualLoss, self).__init__()
         # TODO: change dense loss
         self.dense_loss = nn.BCEWithLogitsLoss()
         self.categorical_loss = loss
         # TODO: change dense labels
-        # # labels are contrastively learned, but they are floats
-        # dense_embeddings = np.load('simsiam/cifar_prototypes.npy')
-        # dense_embeddings = (dense_embeddings - np.mean(dense_embeddings)) / np.std(dense_embeddings)
-        # # make them binary, since that did so well
-        # dense_binary_embeddings = np.where(dense_embeddings > 0, 1, 0)
-
-        dense_binary_embeddings = self.construct_dense_labels(num_classes)#np.random.choice([0, 1], size=(num_classes,64*32)).astype("float32")
+        # labels are contrastively learned, but they are floats
+        dense_embeddings = np.load('simsiam/cifar_prototypes.npy')
+        medians = np.median(dense_embeddings, axis=0)
+        dense_binary_embeddings = np.where(dense_embeddings > medians, 1, 0)
+        # dense_binary_embeddings = np.random.choice([0, 1], size=(num_classes,64*32)).astype("float32")
         import matplotlib.pyplot as plt
         plt.imsave('dense binary embeddings.png', dense_binary_embeddings, cmap='gray')
         #plt.show()
