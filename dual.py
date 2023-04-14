@@ -6,7 +6,7 @@ import proxynca
 import losses
 
 class DualModel(nn.Module):
-    def __init__(self, model,args):
+    def __init__(self, model,args, bottleneck=64):
 
         super(DualModel, self).__init__()
   
@@ -23,13 +23,29 @@ class DualModel(nn.Module):
             self.fc = model.fc
             model.fc = nn.Identity()
 
+        # self.decoder = nn.Sequential(
+        #     nn.BatchNorm1d(self.fc.in_features),
+        #     nn.ReLU(),
+        #     nn.Linear(self.fc.in_features, self.fc.in_features, bias=False),
+        #     nn.BatchNorm1d(self.fc.in_features),
+        #     nn.ReLU(),
+        #     nn.Linear(self.fc.in_features, self.fc.in_features)
+        # )
         self.decoder = nn.Sequential(
             nn.BatchNorm1d(self.fc.in_features),
-            nn.ReLU(),
-            nn.Linear(self.fc.in_features, self.fc.in_features, bias=False),
-            nn.BatchNorm1d(self.fc.in_features),
-            nn.ReLU(),
-            nn.Linear(self.fc.in_features, self.fc.in_features)
+            nn.Linear(self.fc.in_features, bottleneck),
+            nn.LeakyReLU(0.1),
+            nn.BatchNorm1d(bottleneck),
+            nn.Linear(bottleneck, bottleneck*2),
+            nn.LeakyReLU(0.1),
+            nn.BatchNorm1d(bottleneck*2),
+            nn.Linear(bottleneck*2, bottleneck*4),
+            nn.LeakyReLU(0.1),
+            nn.BatchNorm1d(bottleneck*4),
+            nn.Linear(bottleneck*4, 4096),
+            #nn.Sigmoid()
+            nn.LeakyReLU(0.1),
+            nn.Linear(4096, 4096),
         )
 
         self.task_modules = nn.ModuleList([self.fc,self.decoder])
@@ -61,10 +77,10 @@ class DualLoss(nn.Module):
         self.categorical_loss = loss
         # TODO: change dense labels
         # labels are contrastively learned, but they are floats
-        dense_embeddings = np.load('simsiam/cifar_prototypes.npy')
-        medians = np.median(dense_embeddings, axis=0)
-        dense_binary_embeddings = np.where(dense_embeddings > medians, 1, 0)
-        # dense_binary_embeddings = np.random.choice([0, 1], size=(num_classes,64*32)).astype("float32")
+        # dense_embeddings = np.load('simsiam/cifar_prototypes.npy')
+        # medians = np.median(dense_embeddings, axis=0)
+        # dense_binary_embeddings = np.where(dense_embeddings > medians, 1, 0)
+        dense_binary_embeddings = np.random.choice([0, 1], size=(num_classes,64*64)).astype("float32")
         import matplotlib.pyplot as plt
         plt.imsave('dense binary embeddings.png', dense_binary_embeddings, cmap='gray')
         #plt.show()
