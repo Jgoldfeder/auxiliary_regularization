@@ -4,10 +4,10 @@ python main_simsiam.py \
   --batch-size 64 \
   --print-freq 100 \
   --dim 4096 \
-  --pred_dim 1024 \
+  --pred-dim 1024 \
   cifar100
 
 python generate_labels.py \
   --gpu 0 \
   --dim 4096 \
-  --pred_dim 1024
+  --pred-dim 1024
