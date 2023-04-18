@@ -6,3 +6,8 @@ python main_simsiam.py \
   --dim 4096 \
   --pred_dim 1024 \
   cifar100
+
+python generate_labels.py \
+  --gpu 0 \
+  --dim 4096 \
+  --pred_dim 1024
