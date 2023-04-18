@@ -76,6 +76,8 @@ parser.add_argument('-p', '--print-freq', default=1, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
+parser.add_argument('--seed', default=None, type=int,
+                    help='seed for initializing training. ')
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -107,7 +109,7 @@ def main():
         models.__dict__[args.arch],
         args.dim, args.pred_dim)
 
-    model.load_state_dict(torch.load('best_contrastive_label_network.pth'))
+    model.load_state_dict(torch.load('best_contrastive_label_network_{}.pth'.format(args.seed)))
 
     model = model.encoder
 
@@ -149,7 +151,7 @@ def generate_labels(train_loader, model, fine_to_coarse, args):
         for embeddings in embeddings_by_class]
     prototype_by_class = torch.stack(prototype_by_class, dim=0).detach().numpy()
     print(prototype_by_class.shape)
-    np.save('cifar_prototypes.npy', prototype_by_class)
+    np.save('cifar_prototypes_{}.npy'.format(args.seed), prototype_by_class)
 
     #prototype_by_class = np.load('cifar_prototypes.npy')
     colors = []
@@ -164,7 +166,7 @@ def generate_labels(train_loader, model, fine_to_coarse, args):
     # # Plot the t-SNE embeddings
     plt.scatter(tsne_embeddings[:, 0], tsne_embeddings[:, 1], \
         c=[colors[fine_to_coarse[i]] for i in range(100)])
-    plt.savefig('tsne_embeddings.png')
+    plt.savefig('tsne_embeddings_{}.png'.format(args.seed))
     plt.show()
 
     return

@@ -267,7 +267,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
-            torch.save(model.state_dict(), 'current_contrastive_label_network.pth')
+            torch.save(model.state_dict(), 'current_contrastive_label_network_{}.pth'.format(args.seed))
             # save_checkpoint({
             #     'epoch': epoch + 1,
             #     'arch': args.arch,
@@ -277,7 +277,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if curr_train_loss < best_train_loss:
             best_train_loss = curr_train_loss
             best_train_epoch = epoch
-            torch.save(model.state_dict(), 'best_contrastive_label_network.pth')
+            torch.save(model.state_dict(), 'best_contrastive_label_network_{}.pth'.format(args.seed))
             print('saving on epoch {} with loss {}'.format(best_train_loss, best_train_epoch))
 
 
