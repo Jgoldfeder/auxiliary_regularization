@@ -82,7 +82,8 @@ class DualLoss(nn.Module):
         # labels are contrastively learned, but they are floats
         dense_embeddings = np.concatenate(\
             (np.load('simsiam/cifar_prototypes_{}.npy'.format(self.args.seed - 1)), \
-            np.load('simsiam/cifar_prototypes_{}.npy'.format(self.args.seed))))
+            np.load('simsiam/cifar_prototypes_{}.npy'.format(self.args.seed))), \
+            axis=1)
         medians = np.median(dense_embeddings, axis=0)
         dense_binary_embeddings = np.where(dense_embeddings > medians, 1, 0)
         #dense_binary_embeddings = np.random.choice([0, 1], size=(num_classes,64*64)).astype("float32")
