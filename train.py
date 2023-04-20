@@ -306,7 +306,7 @@ parser.add_argument('--neighbor', action='store_true', default=False,
                     help='Use dual mode.')                    
 parser.add_argument('--dual-weights', type=float, nargs='+', default=[0.5,0.5],
                     help='task weights for dual mode.')
-parser.add_argument('--contrastive', type='store_true', default=False,
+parser.add_argument('--contrastive', action='store_true', default=False,
                     help='Whether to use contrastive labels. Otherwise, random.')
 
 parser.add_argument('--metabalance', action='store_true', default=False,
