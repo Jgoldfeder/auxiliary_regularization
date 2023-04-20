@@ -73,6 +73,8 @@ class DualLoss(nn.Module):
     #     return the_array.astype("float32")
     def __init__(self,loss,weights,num_classes, args):
         super(DualLoss, self).__init__()
+        
+        self.args = args
         # TODO: change dense loss
         self.dense_loss = nn.BCEWithLogitsLoss()
         self.categorical_loss = loss
