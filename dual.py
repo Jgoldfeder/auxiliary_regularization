@@ -11,6 +11,7 @@ class DualModel(nn.Module):
         super(DualModel, self).__init__()
   
         self.model = model
+        self.args = args
 
         # replace last layer, this varies by model name
         if "mixer" in args.model:
@@ -77,7 +78,9 @@ class DualLoss(nn.Module):
         self.categorical_loss = loss
         # TODO: change dense labels
         # labels are contrastively learned, but they are floats
-        dense_embeddings = np.load('simsiam/cifar_prototypes.npy')
+        dense_embeddings = np.concatenate(\
+            (np.load('simsiam/cifar_prototypes_{}.npy'.format(self.args.seed - 1)), \
+            np.load('simsiam/cifar_prototypes_{}.npy'.format(self.args.seed))))
         medians = np.median(dense_embeddings, axis=0)
         dense_binary_embeddings = np.where(dense_embeddings > medians, 1, 0)
         #dense_binary_embeddings = np.random.choice([0, 1], size=(num_classes,64*64)).astype("float32")
