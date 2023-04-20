@@ -666,7 +666,7 @@ def main():
         train_loss_fn = nn.CrossEntropyLoss()
     
     if args.dual:
-        train_loss_fn = dual.DualLoss(train_loss_fn,args.dual_weights,args.num_classes)
+        train_loss_fn = dual.DualLoss(train_loss_fn,args.dual_weights,args.num_classes, args)
         #train_loss_fn = model.criterion
 
     train_loss_fn = train_loss_fn.cuda()
