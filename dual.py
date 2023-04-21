@@ -4,11 +4,110 @@ import numpy as np
 import pdb 
 import proxynca
 import losses
+import copy
+import random
+
+class State:
+    def __init__(self,model,opt,loss):
+        self.model = model
+        self.opt = opt
+        self.loss = loss
+
+        self.model_state = copy.deepcopy(model.state_dict())
+        self.opt_state = []
+        for o in opt:
+            self.opt_state.append(copy.deepcopy(o.state_dict()))
+        self.labels = copy.deepcopy(loss.dense_labels)
+        self.train_loss = -1
+        self.val_loss = -1
+
+    def copy(self):
+        s =  State(self.model,self.opt,self.loss)
+        s.labels = copy.deepcopy(self.labels)
+        s.train_loss = self.train_loss
+        s.val_loss = self.val_loss
+        return s
+     
+    def restore(self):
+        self.model.load_state_dict(self.model_state)
+        for i,o in  enumerate(self.opt):
+            o.load_state_dict(self.opt_state[i])
+        self.loss.dense_labels = self.labels
+    
+    def random_label(self):
+        num_classes = self.labels.shape[0]
+        self.labels = torch.tensor(np.random.choice([0, 1], size=(num_classes,64*64)).astype("float32"))
+
+    def mutate(self,percent):
+        for i in range(self.labels.shape[0]):
+            for j in range(self.labels.shape[1]):
+                if random.uniform(0, 1) > percent:
+                    continue
+                if self.labels[i][j] == 0:
+                    self.labels[i][j] = 1
+                else:
+                    self.labels[i][j] = 0
+        return self
+    
+    def save_model(self):
+        self.model_state = copy.deepcopy(self.model.state_dict())
+
+    def save_opt(self):
+        self.opt_state = []
+        for o in self.opt:
+            self.opt_state.append(copy.deepcopy(o.state_dict()))
+
 
 class DualModel(nn.Module):
     def __init__(self, model,args,bottleneck=64):
 
         super(DualModel, self).__init__()
+  
+        self.model = model
+
+        # replace last layer, this varies by model name
+        if "mixer" in args.model:
+            self.fc = model.head
+            model.head = nn.Identity()
+        elif "vit" in args.model:
+            self.fc = model.head
+            model.head = nn.Identity()
+        else:            
+            self.fc = model.fc
+            model.fc = nn.Identity()
+
+
+
+        self.decoder = nn.Sequential(
+            nn.BatchNorm1d(self.fc.in_features),
+            nn.Linear(self.fc.in_features, 4096),
+            nn.LeakyReLU(0.1),
+            nn.BatchNorm1d(4096),
+            nn.Linear(4096, 4096), 
+        )
+
+        self.task_modules = nn.ModuleList([self.fc,self.decoder])
+        
+        self.old = nn.ModuleList([self.fc,self.model])
+        self.new = nn.ModuleList([self.decoder])
+
+        self.shared_modules = model
+    
+
+    def forward(self,x,on=False):
+        x = self.model(x)
+        x1 =  self.fc(x)
+        if on:
+            x2 = self.decoder(x)
+            return x1, x2
+        return x1
+    
+
+
+class DualModelExploratory(nn.Module):
+    def __init__(self, model,args,bottleneck=64):
+
+        super(DualModelExploratory, self).__init__()
   
         self.model = model
 

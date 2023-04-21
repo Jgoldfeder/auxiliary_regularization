@@ -312,7 +312,8 @@ parser.add_argument('--metabalance', action='store_true', default=False,
 parser.add_argument('--pcgrad', action='store_true', default=False,
                     help='Use pcgrad mode.')   
 parser.add_argument('--bottleneck', type=int, default=64, )
-                                    
+parser.add_argument('--ea', action='store_true', default=False,
+                    help='Use evolutioanry algs mode.')   
 def _parse_args():
     # Do we have a config file to parse?
     args_config, remaining = config_parser.parse_known_args()
@@ -568,7 +569,6 @@ def main():
     if args.dual:
 
         secondary_optim = torch.optim.Adam(model.new.parameters(),lr=1e-3)#torch.optim.SGD(model.decoder.parameters(),lr=0.01,momentum=0.9, weight_decay=1e-4)#create_optimizer_v2(model.shared_modules, **optimizer_kwargs(cfg=args)) 
-        third_optim = torch.optim.Adam(model.new.parameters(),lr=1e-4)
     # setup automatic mixed-precision (AMP) loss scaling and op casting
     amp_autocast = suppress  # do nothing
     loss_scaler = None
@@ -696,29 +696,113 @@ def main():
             f.write(args_text)
     if args.dual:
         model.secondary_optim=secondary_optim
-        model.third_optim=third_optim
+
+
+    # make population
+    if args.ea:
+        population_size = 5
+        states = []
+        for _ in range(population_size):
+            if args.metabalance:
+                states.append(dual.State(model,[optimizer1,optimizer2,secondary_optim,lr_scheduler1,lr_scheduler2],train_loss_fn))
+            else:
+                states.append(dual.State(model,[optimizer,secondary_optim,lr_scheduler],train_loss_fn))
+            states[-1].random_label()
     try:
+        pareto = True
         for epoch in range(start_epoch, num_epochs):
-            #if epoch == 30:
-            #    print("switching LR on decoder")
-            #    model.secondary_optim = model.third_optim
+
+            if pareto:
+                # copy all old states
+                OG_front = []
+                for s in states:
+                    OG_front.append(s.copy())
+
+            if args.ea:
+                # mutate
+                
+                new_states = []
+                for s in states:
+                    new_states.append(s.copy().mutate(0.1))
+                states = states+new_states
+
             if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
                 loader_train.sampler.set_epoch(epoch)
-            if args.metabalance:
-                train_metrics = train_one_epoch_metabalance(
-                    epoch, model, loader_train, (optimizer1,optimizer2,metabalancer), train_loss_fn, args,
-                    lr_scheduler=(lr_scheduler1,lr_scheduler2), saver=saver, output_dir=output_dir,
-                    amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+            
+            
+            if args.ea:
+                for s in states:
+                    print("****")
+                    s.restore()
+
+                    if args.metabalance:
+                        train_metrics = train_one_epoch_metabalance(
+                            epoch, model, loader_train, (optimizer1,optimizer2,metabalancer), train_loss_fn, args,
+                            lr_scheduler=(lr_scheduler1,lr_scheduler2), saver=saver, output_dir=output_dir,
+                            amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+                                
+                    else:
+                        train_metrics = train_one_epoch(
+                            epoch, model, loader_train, optimizer, train_loss_fn, args,
+                            lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
+                            amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+                
+                    s.train_loss = train_metrics['loss']
+
+                    
+                    if pareto:
+                        eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+                        s.val_loss = eval_metrics['loss']
+
+                    s.save_model()
+                
+                if pareto:
+                    # append OG front to states once we have a warm start
+                    if epoch > 1:
+                        states = states + OG_front
+                    front = []
+                    for s1 in states:
+                        dominated = False
+                        for s2 in states:
+                            # check if s1 is dominated
+                            if s1.train_loss < s2.train_loss and s1.val_loss > s2.val_loss:
+                                dominated=True
+                        if not dominated:
+                            front.append(s1)
+                    states = front
+                    # now sort by val loss
+                    states = sorted(states, key=lambda x: x.val_loss, reverse=False)
+                    print("front length:",len(states))
+                    for s in states:
+                        print(s.train_loss,s.val_loss)
+                else:
+                    states = sorted(states, key=lambda x: x.train_loss, reverse=False)
+                    print([s.train_loss for s in states])
+                    # keep half
+                    states = states[:(len(states)+1)//2]
+
             else:
-                train_metrics = train_one_epoch(
-                    epoch, model, loader_train, optimizer, train_loss_fn, args,
-                    lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
-                    amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+                if args.metabalance:
+                    train_metrics = train_one_epoch_metabalance(
+                        epoch, model, loader_train, (optimizer1,optimizer2,metabalancer), train_loss_fn, args,
+                        lr_scheduler=(lr_scheduler1,lr_scheduler2), saver=saver, output_dir=output_dir,
+                        amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+                                
+                else:
+                    train_metrics = train_one_epoch(
+                        epoch, model, loader_train, optimizer, train_loss_fn, args,
+                        lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
+                        amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn) 
 
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if args.local_rank == 0:
                     _logger.info("Distributing BatchNorm running means and vars")
                 distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
+
+            # evlauate on lowest loss
+            
+            if args.ea:
+                states[0].restore()
 
             eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
 
@@ -728,7 +812,7 @@ def main():
                 ema_eval_metrics = validate(
                     model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
                 eval_metrics = ema_eval_metrics
-
+            
             if lr_scheduler is not None:
                 # step LR for next epoch
                 if args.metabalance:
@@ -736,6 +820,11 @@ def main():
                     lr_scheduler2.step(epoch + 1, eval_metrics[eval_metric])
                 else:
                     lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
+            
+            if args.ea:
+                # save opts
+                for s in states:
+                    s.save_opt()
 
             if output_dir is not None:
                 eval_metrics["best_acc"] = best_metric
@@ -749,7 +838,7 @@ def main():
                 save_metric = eval_metrics[eval_metric]
                 best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
 
-
+            
     except KeyboardInterrupt:
         pass
     if best_metric is not None:
@@ -777,6 +866,7 @@ def train_one_epoch(
     end = time.time()
     last_idx = len(loader) - 1
     num_updates = epoch * len(loader)
+
     for batch_idx, (input, target) in enumerate(loader):
         last_batch = batch_idx == last_idx
         data_time_m.update(time.time() - end)
