@@ -701,6 +701,7 @@ def main():
         model.third_optim=third_optim
     try:
         for epoch in range(start_epoch, num_epochs):
+            #model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, dual_loss_fn=train_loss_fn)
             #if epoch == 30:
             #    print("switching LR on decoder")
             #    model.secondary_optim = model.third_optim
@@ -722,13 +723,13 @@ def main():
                     _logger.info("Distributing BatchNorm running means and vars")
                 distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
-            eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+            eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, dual_loss_fn=train_loss_fn)
 
             if model_ema is not None and not args.model_ema_force_cpu:
                 if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                     distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
                 ema_eval_metrics = validate(
-                    model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
+                    model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)', dual_loss_fn=train_loss_fn)
                 eval_metrics = ema_eval_metrics
 
             if lr_scheduler is not None:
@@ -741,7 +742,7 @@ def main():
 
             if output_dir is not None:
                 eval_metrics["best_acc"] = best_metric
-                eval_metrics["best_top5"] = best_top5 # TODO: update best_top5
+                #eval_metrics["best_top5"] = best_top5 # TODO: update best_top5
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
                     write_header=best_metric is None, log_wandb=args.log_wandb and has_wandb)
@@ -1044,12 +1045,13 @@ def train_one_epoch_metabalance(
     loss_fn.update_labels()
     return OrderedDict([('loss', losses_m.avg)])
 
-def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
+def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='', dual_loss_fn=None):
     batch_time_m = AverageMeter()
     losses_m = AverageMeter()
     top1_m = AverageMeter()
     top5_m = AverageMeter()
     if args.dual:
+        assert dual_loss_fn is not None
         dense_top1_m = AverageMeter()
 
     model.eval()
@@ -1067,7 +1069,7 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
 
             with amp_autocast():
                 if args.dual:
-                    dense_target = loss_fn.get_dense_targets(target=target)
+                    dense_target = dual_loss_fn.get_dense_targets(target=target)
                     output = model(input, True)
                     assert len(output) == 2
                     output, dense_output = output[0], output[1]
@@ -1082,13 +1084,10 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
                 output = output.unfold(0, reduce_factor, reduce_factor).mean(dim=2)
                 target = target[0:target.size(0):reduce_factor]
 
-            if args.dual:
-                loss = loss_fn(output, target, dense_target=dense_target)
-            else:
-                loss = loss_fn(output, target)
+            loss = loss_fn(output, target)
             acc1, acc5 = accuracy(output, target, topk=(1, 5))
             if args.dual:
-                dense_acc = count_correct_nn(output=dense_output, target=dense_target, mels=loss.dense_labels) / output.size(0)
+                dense_acc = count_correct_nn(outputs=dense_output.cuda(), targets=dense_target.cuda(), mels=dual_loss_fn.dense_labels.cuda()) / output.size(0)
 
             if args.distributed:
                 reduced_loss = reduce_tensor(loss.data, args.world_size)
@@ -1102,7 +1101,8 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
             losses_m.update(reduced_loss.item(), input.size(0))
             top1_m.update(acc1.item(), output.size(0))
             top5_m.update(acc5.item(), output.size(0))
-            dense_top1_m.update(dense_acc, output.size(0))
+            if args.dual:
+                dense_top1_m.update(dense_acc, output.size(0))
 
             batch_time_m.update(time.time() - end)
             end = time.time()
@@ -1117,7 +1117,7 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
                         log_name, batch_idx, last_idx, batch_time=batch_time_m,
                         loss=losses_m, top1=top1_m, top5=top5_m))
 
-    metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
+    metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg), ('dense_top1', dense_top1_m.avg)])
 
     return metrics
 
