@@ -741,6 +741,7 @@ def main():
 
             if output_dir is not None:
                 eval_metrics["best_acc"] = best_metric
+                eval_metrics["best_top5"] = best_top5 # TODO: update best_top5
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
                     write_header=best_metric is None, log_wandb=args.log_wandb and has_wandb)
@@ -757,6 +758,23 @@ def main():
     if best_metric is not None:
         _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
 
+def count_correct_nn(outputs, targets, mels):
+    mse = nn.MSELoss(reduction="none")
+    batch_size = outputs.size(0)
+    num_classes = mels.size(0)
+    outputs_repeated = outputs.unsqueeze(1).repeat_interleave(num_classes, dim=1)
+    mels_repeated = mels.unsqueeze(0).repeat_interleave(batch_size, dim=0)
+    if len(outputs.shape) == 2:
+        mse_dists = mse(outputs_repeated, mels_repeated).mean(-1)
+        outputs_NN = mels[mse_dists.argmin(-1)]
+
+        return ((outputs_NN - targets).abs().sum(-1) < 1e-5).sum().item()
+
+    else:
+        mse_dists = mse(outputs_repeated, mels_repeated).mean(-1).mean(-1)
+        outputs_NN = mels[mse_dists.argmin(-1)]
+
+        return ((outputs_NN - targets).abs().sum(-1).sum(-1) < 1e-5).sum().item()
 
 def train_one_epoch(
         epoch, model, loader, optimizer, loss_fn, args,
@@ -1031,6 +1049,8 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
     losses_m = AverageMeter()
     top1_m = AverageMeter()
     top5_m = AverageMeter()
+    if args.dual:
+        dense_top1_m = AverageMeter()
 
     model.eval()
 
@@ -1046,7 +1066,13 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
                 input = input.contiguous(memory_format=torch.channels_last)
 
             with amp_autocast():
-                output = model(input)
+                if args.dual:
+                    dense_target = loss_fn.get_dense_targets(target=target)
+                    output = model(input, True)
+                    assert len(output) == 2
+                    output, dense_output = output[0], output[1]
+                else:
+                    output = model(input)
             if isinstance(output, (tuple, list)):
                 output = output[0]
 
@@ -1056,8 +1082,13 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
                 output = output.unfold(0, reduce_factor, reduce_factor).mean(dim=2)
                 target = target[0:target.size(0):reduce_factor]
 
-            loss = loss_fn(output, target)
+            if args.dual:
+                loss = loss_fn(output, target, dense_target=dense_target)
+            else:
+                loss = loss_fn(output, target)
             acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            if args.dual:
+                dense_acc = count_correct_nn(output=dense_output, target=dense_target, mels=loss.dense_labels) / output.size(0)
 
             if args.distributed:
                 reduced_loss = reduce_tensor(loss.data, args.world_size)
@@ -1071,6 +1102,7 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
             losses_m.update(reduced_loss.item(), input.size(0))
             top1_m.update(acc1.item(), output.size(0))
             top5_m.update(acc5.item(), output.size(0))
+            dense_top1_m.update(dense_acc, output.size(0))
 
             batch_time_m.update(time.time() - end)
             end = time.time()

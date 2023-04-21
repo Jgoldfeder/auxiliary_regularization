@@ -95,16 +95,20 @@ class DualLoss(nn.Module):
         self.num_classes = num_classes
         self.weights = weights
     
-    def forward(self,output,target,seperate=False):
-        dense_target = []
-        for t in target:
-            dense_target.append(self.dense_labels[t])
-        dense_target = torch.stack(dense_target).cuda()
+    def forward(self,output,target,seperate=False,dense_target=None):
+        if dense_target is None:
+            dense_target = self.get_dense_targets(target)
         loss1 = self.categorical_loss(output[0],target)*self.weights[0]
         loss2 = self.dense_loss(output[1], dense_target)*self.weights[1]
         if seperate:
             return [loss1,loss2]
         return loss1 + loss2
+    def get_dense_targets(self, target):
+        dense_target = []
+        for t in target:
+            dense_target.append(self.dense_labels[t])
+        dense_target = torch.stack(dense_target).cuda()
+        return dense_target
 
     def update_labels(self):
         return
