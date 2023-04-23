@@ -123,6 +123,7 @@ def main():
         args.dataset.replace('/', ''), args.seed)))
 
     model = model.encoder
+    model = model.to(args.gpu)
 
     print('generating labels')
     generate_labels(train_loader, model, args)
@@ -137,22 +138,25 @@ def generate_labels(train_loader, model, args):
 
     # switch to eval mode
     model.eval()
+    torch.no_grad()
 
     end = time.time()
 
-    embeddings_by_class = [list() for i in range(args.num_classes)]
+    embeddings_by_class = [torch.zeros(args.dim) for i in range(args.num_classes)]
+    count_by_class = [0 for i in range(args.num_classes)]
     print('about to load images')
     for i, (images, labels) in enumerate(train_loader):
-        print(i)
+        images, labels = images.to(args.gpu), labels.to(args.gpu)
         # measure data loading time
         data_time.update(time.time() - end)
 
         # compute output and loss
         output = model(images)
 
-        for i in range(labels.shape[0]):
-            curr_label = labels[i].item()
-            embeddings_by_class[curr_label].append(output[i])
+        for item_idx in range(labels.shape[0]):
+            curr_label = labels[item_idx].item()
+            embeddings_by_class[curr_label] += output[item_idx].to(torch.float64).cpu()
+            count_by_class[curr_label] += 1
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -160,9 +164,13 @@ def generate_labels(train_loader, model, args):
         if i % args.print_freq == 0:
             progress.display(i)
     
+    for class_idx in range(args.num_classes):
+        embeddings_by_class[class_idx] /= count_by_class[class_idx]
+
     # save class prototypes
-    prototype_by_class = [torch.mean(torch.stack(embeddings, dim=0), dim=0) \
-        for embeddings in embeddings_by_class]
+    # prototype_by_class = [torch.mean(torch.stack(embeddings, dim=0), dim=0) \
+    #     for embeddings in embeddings_by_class]
+    prototype_by_class = embeddings_by_class
     prototype_by_class = torch.stack(prototype_by_class, dim=0).detach().numpy()
     print(prototype_by_class.shape)
     np.save('{}_prototypes_{}.npy'.format(args.dataset.replace('/', ''), args.seed), prototype_by_class)
