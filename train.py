@@ -340,11 +340,77 @@ def _parse_args():
     if args.metabalance or args.pcgrad:
         args.dual = True
 
-    # if attacking set batch to 1
-    if args.attack:
-        args.batch_size=1
     return args, args_text
 
+def run_attack(model,num_classes,device,attackloader,num_steps,epsilons):
+    print("Test FGSM untargeted")
+    fgsm_acc = []
+    fgsm_examples = []
+    for eps in epsilons:
+        acc, ex = attack.test_fgsm_untargeted(model, device, attackloader, eps)
+        fgsm_acc.append(acc)
+        fgsm_examples.append(ex)
+
+    # log
+    data = [[x, y] for (x, y) in zip(epsilons, fgsm_acc)]
+    table = wandb.Table(data=data, columns = ["eps", "acc"])
+    wandb.log(
+        {"fgsm_acc untargeted" : wandb.plot.line(table, "x", "y",
+            title="fgsm_acc untargeted")})
+
+
+
+    print("Test FGSM targeted")
+    fgsm_targeted_acc = []
+    fgsm_targeted_examples = []
+    for eps in epsilons:
+        acc, ex = attack.test_fgsm_targeted(model, num_classes, device, attackloader, eps)
+        fgsm_targeted_acc.append(acc)
+        fgsm_targeted_examples.append(ex)
+
+    # log
+    data = [[x, y] for (x, y) in zip(epsilons, fgsm_targeted_acc)]
+    table = wandb.Table(data=data, columns = ["eps", "acc"])
+    wandb.log(
+        {"fgsm_acc targeted" : wandb.plot.line(table, "x", "y",
+            title="fgsm_acc targeted")})
+
+
+    print("Test iterative untargeted")
+    iter_acc = []
+    iter_examples = []
+    for eps in epsilons:
+        alpha = eps / num_steps
+        acc, ex = attack.test_iterative_untargeted(
+            model, device, attackloader, eps, alpha, num_steps
+        )
+        iter_acc.append(acc)
+        iter_examples.append(ex)
+
+    # log
+    data = [[x, y] for (x, y) in zip(epsilons, iter_acc)]
+    table = wandb.Table(data=data, columns = ["eps", "acc"])
+    wandb.log(
+        {"iter_acc untargeted" : wandb.plot.line(table, "x", "y",
+            title="iter_acc untargeted")})
+    
+    print("Test iterative targeted")
+    iter_targeted_acc = []
+    iter_targeted_examples = []
+    for eps in epsilons:
+        alpha = eps / num_steps
+        acc, ex = attack.test_iterative_targeted(
+            model, num_classes, device, attackloader, mels, eps, alpha, num_steps
+        )
+        iter_targeted_acc.append(acc)
+        iter_targeted_examples.append(ex)
+    # log
+    data = [[x, y] for (x, y) in zip(epsilons, iter_targeted_acc)]
+    table = wandb.Table(data=data, columns = ["eps", "acc"])
+    wandb.log(
+        {"iter_acc targeted" : wandb.plot.line(table, "x", "y",
+            title="iter_acc targeted")})
+    
 def main():
     setup_default_logging()
     args, args_text = _parse_args()
@@ -534,6 +600,22 @@ def main():
         crop_pct=data_config['crop_pct'],
         pin_memory=args.pin_mem,
     )
+
+    loader_attack = create_loader(
+        dataset_eval,
+        input_size=data_config['input_size'],
+        batch_size=1,
+        is_training=False,
+        use_prefetcher=args.prefetcher,
+        interpolation=data_config['interpolation'],
+        mean=data_config['mean'],
+        std=data_config['std'],
+        num_workers=args.workers,
+        distributed=args.distributed,
+        crop_pct=data_config['crop_pct'],
+        pin_memory=args.pin_mem,
+    )
+
     if args.neighbor:
         class_sampler = ClassSampler(loader_train)
 
@@ -710,53 +792,14 @@ def main():
     if args.dual:
         model.secondary_optim=secondary_optim
         model.third_optim=third_optim
-    if args.attack:
-        if args.resume == '':
-            raise ValueError('resume checkpoint must be provided when attacking!')
+    if args.attack and  args.resume != '':
         num_classes = args.num_classes
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        attackloader = loader_eval
+        attackloader = loader_attack
         num_steps = 5
         epsilons = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
         
-        print("Test FGSM untargeted")
-        fgsm_acc = []
-        fgsm_examples = []
-        for eps in epsilons:
-            acc, ex = attack.test_fgsm_untargeted(model, device, attackloader, eps)
-            fgsm_acc.append(acc)
-            fgsm_examples.append(ex)
-
-        print("Test FGSM targeted")
-        fgsm_targeted_acc = []
-        fgsm_targeted_examples = []
-        for eps in epsilons:
-            acc, ex = attack.test_fgsm_targeted(model, num_classes, device, attackloader, eps)
-            fgsm_targeted_acc.append(acc)
-            fgsm_targeted_examples.append(ex)
-
-        print("Test iterative untargeted")
-        iter_acc = []
-        iter_examples = []
-        for eps in epsilons:
-            alpha = eps / num_steps
-            acc, ex = args.test_iterative_untargeted(
-                model, device, attackloader, eps, alpha, num_steps
-            )
-            iter_acc.append(acc)
-            iter_examples.append(ex)
-
-        print("Test iterative targeted")
-        iter_targeted_acc = []
-        iter_targeted_examples = []
-        for eps in epsilons:
-            alpha = eps / num_steps
-            acc, ex = test_iterative_targeted(
-                model, num_classes, device, attackloader, mels, eps, alpha, num_steps
-            )
-            iter_targeted_acc.append(acc)
-            iter_targeted_examples.append(ex)
-
+        run_attack(model,num_classes,device,attackloader,num_steps,epsilons)
         sys.exit()
     try:
         for epoch in range(start_epoch, num_epochs):
@@ -812,13 +855,29 @@ def main():
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
                     write_header=best_metric is None, log_wandb=args.log_wandb and has_wandb)
-
             if saver is not None:
                 # save proper checkpoint with eval metric
                 
                 save_metric = eval_metrics[eval_metric]
                 best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
+        if args.attack:
+            # load best model
+            path = os.path.join(saver.checkpoint_dir,"model_best.pth.tar")
+            resume_checkpoint(
+                model, path,
+                optimizer=None,
+                loss_scaler=None,
+                log_info=args.local_rank == 0)
 
+
+
+            num_classes = args.num_classes
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            attackloader = loader_attack
+            num_steps = 5
+            epsilons = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+            
+            run_attack(model,num_classes,device,attackloader,num_steps,epsilons)
 
     except KeyboardInterrupt:
         pass
