@@ -30,36 +30,53 @@ import simsiam.builder
 
 from main_simsiam import ProgressMeter, AverageMeter
 
+from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+import tensorflow as tf
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
-cifar100_coarse_to_fine = {
-    'aquatic mammals': ['beaver', 'dolphin', 'otter', 'seal', 'whale'],
-    'fish': ['aquarium_fish', 'flatfish', 'ray', 'shark', 'trout'],
-    'flowers': ['orchid', 'poppy', 'rose', 'sunflower', 'tulip'],
-    'food containers': ['bottle', 'bowl', 'can', 'cup', 'plate'],
-    'fruit and vegetables': ['apple', 'mushroom', 'orange', 'pear', 'sweet_pepper'],
-    'household electrical devices': ['clock', 'keyboard', 'lamp', 'telephone', 'television'],
-    'household furniture': ['bed', 'chair', 'couch', 'table', 'wardrobe'],
-    'insects': ['bee', 'beetle', 'butterfly', 'caterpillar', 'cockroach'],
-    'large carnivores': ['bear', 'leopard', 'lion', 'tiger', 'wolf'],
-    'large man-made outdoor things': ['bridge', 'castle', 'house', 'road', 'skyscraper'],
-    'large natural outdoor scenes': ['cloud', 'forest', 'mountain', 'plain', 'sea'],
-    'large omnivores and herbivores': ['camel', 'cattle', 'chimpanzee', 'elephant', 'kangaroo'],
-    'medium-sized mammals': ['fox', 'porcupine', 'possum', 'raccoon', 'skunk'],
-    'non-insect invertebrates': ['crab', 'lobster', 'snail', 'spider', 'worm'],
-    'people': ['baby', 'boy', 'girl', 'man', 'woman'],
-    'reptiles': ['crocodile', 'dinosaur', 'lizard', 'snake', 'turtle'],
-    'small mammals': ['hamster', 'mouse', 'rabbit', 'shrew', 'squirrel'],
-    'trees': ['maple_tree', 'oak_tree', 'palm_tree', 'pine_tree', 'willow_tree'],
-    'vehicles 1': ['bicycle', 'bus', 'motorcycle', 'pickup_truck', 'train'],
-    'vehicles 2': ['lawn_mower', 'rocket', 'streetcar', 'tank', 'tractor']
-}
+# cifar100_coarse_to_fine = {
+#     'aquatic mammals': ['beaver', 'dolphin', 'otter', 'seal', 'whale'],
+#     'fish': ['aquarium_fish', 'flatfish', 'ray', 'shark', 'trout'],
+#     'flowers': ['orchid', 'poppy', 'rose', 'sunflower', 'tulip'],
+#     'food containers': ['bottle', 'bowl', 'can', 'cup', 'plate'],
+#     'fruit and vegetables': ['apple', 'mushroom', 'orange', 'pear', 'sweet_pepper'],
+#     'household electrical devices': ['clock', 'keyboard', 'lamp', 'telephone', 'television'],
+#     'household furniture': ['bed', 'chair', 'couch', 'table', 'wardrobe'],
+#     'insects': ['bee', 'beetle', 'butterfly', 'caterpillar', 'cockroach'],
+#     'large carnivores': ['bear', 'leopard', 'lion', 'tiger', 'wolf'],
+#     'large man-made outdoor things': ['bridge', 'castle', 'house', 'road', 'skyscraper'],
+#     'large natural outdoor scenes': ['cloud', 'forest', 'mountain', 'plain', 'sea'],
+#     'large omnivores and herbivores': ['camel', 'cattle', 'chimpanzee', 'elephant', 'kangaroo'],
+#     'medium-sized mammals': ['fox', 'porcupine', 'possum', 'raccoon', 'skunk'],
+#     'non-insect invertebrates': ['crab', 'lobster', 'snail', 'spider', 'worm'],
+#     'people': ['baby', 'boy', 'girl', 'man', 'woman'],
+#     'reptiles': ['crocodile', 'dinosaur', 'lizard', 'snake', 'turtle'],
+#     'small mammals': ['hamster', 'mouse', 'rabbit', 'shrew', 'squirrel'],
+#     'trees': ['maple_tree', 'oak_tree', 'palm_tree', 'pine_tree', 'willow_tree'],
+#     'vehicles 1': ['bicycle', 'bus', 'motorcycle', 'pickup_truck', 'train'],
+#     'vehicles 2': ['lawn_mower', 'rocket', 'streetcar', 'tank', 'tractor']
+# }
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--dir', metavar='DIR', default='cifar100/train',
-                    help='path to dataset')
+parser.add_argument('--dataset', '-d', metavar='NAME', default='',
+                    help='dataset type (default: ImageFolder/ImageTar if empty)')
+parser.add_argument('--train-split', metavar='NAME', default='train',
+                    help='dataset train split (default: train)')
+parser.add_argument('--val-split', metavar='NAME', default='validation',
+                    help='dataset validation split (default: validation)')
+parser.add_argument('--dataset-download', action='store_true', default=False,
+                    help='Allow download of dataset for torch/ and tfds/ datasets that support it.')
+parser.add_argument('--class-map', default='', type=str, metavar='FILENAME',
+                    help='path to class to idx mapping file (default: "")')
+# parser.add_argument('data', metavar='DIR',
+#                     help='path to dataset')
+parser.add_argument('--epoch-repeats', type=float, default=0., metavar='N',
+                    help='epoch repeat multiplier (number of times to repeat dataset epoch per train epoch).')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     choices=model_names,
                     help='model architecture: ' +
@@ -88,18 +105,42 @@ parser.add_argument('--pred-dim', default=512, type=int,
 def main():
     args = parser.parse_args()
 
-    train_dataset = datasets.CIFAR100(download=True, train=True, root=args.dir,\
-                                transform=transforms.ToTensor())
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225])
+    the_transform = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                normalize,
+            ])
 
-    #print(train_dataset.classes)
-    cifar100_label_to_idx = {label: idx for idx, label in enumerate(train_dataset.classes)}
-    coarse_label_to_idx = {key: idx for idx, key in enumerate([x for x in cifar100_coarse_to_fine])}
-    fine_to_coarse = [None for i in range(100)]
-    for curr_coarse_label in cifar100_coarse_to_fine:
-        the_curr_fine_labels = cifar100_coarse_to_fine[curr_coarse_label]
-        for curr_fine_label in the_curr_fine_labels:
-            curr_fine_index = cifar100_label_to_idx[curr_fine_label]
-            fine_to_coarse[curr_fine_index] = coarse_label_to_idx[curr_coarse_label]
+    if args.dataset != "aircraft":
+        train_dataset = create_dataset(
+            args.dataset, root=args.dataset, split=args.train_split, is_training=True,
+            class_map=args.class_map,
+            download=args.dataset_download,
+            batch_size=args.batch_size,
+            repeats=args.epoch_repeats,
+            transform=the_transform)
+        # train_dataset = create_dataset(
+        #     'tfds/caltech101', 'beans', download=True, split='train[:10%]', batch_size=2, is_training=True
+        #     )
+    else:
+        train_dataset = aircraft.Aircraft('./aircraft', train=True, download=args.dataset_download,
+            transform=the_transform)
+
+    # train_dataset = datasets.CIFAR100(download=True, train=True, root=args.dir,\
+    #                             transform=transforms.ToTensor())
+
+    # #print(train_dataset.classes)
+    # cifar100_label_to_idx = {label: idx for idx, label in enumerate(train_dataset.classes)}
+    # coarse_label_to_idx = {key: idx for idx, key in enumerate([x for x in cifar100_coarse_to_fine])}
+    # fine_to_coarse = [None for i in range(100)]
+    # for curr_coarse_label in cifar100_coarse_to_fine:
+    #     the_curr_fine_labels = cifar100_coarse_to_fine[curr_coarse_label]
+    #     for curr_fine_label in the_curr_fine_labels:
+    #         curr_fine_index = cifar100_label_to_idx[curr_fine_label]
+    #         fine_to_coarse[curr_fine_index] = coarse_label_to_idx[curr_coarse_label]
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=False,
@@ -109,13 +150,14 @@ def main():
         models.__dict__[args.arch],
         args.dim, args.pred_dim)
 
-    model.load_state_dict(torch.load('best_contrastive_label_network_{}.pth'.format(args.seed)))
+    model.load_state_dict(torch.load('best_contrastive_label_network_{}_{}.pth'.format(\
+        args.dataset.replace('/', ''), args.seed)))
 
     model = model.encoder
 
-    generate_labels(train_loader, model, fine_to_coarse, args)
+    generate_labels(train_loader, model, args)
 
-def generate_labels(train_loader, model, fine_to_coarse, args):
+def generate_labels(train_loader, model, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     progress = ProgressMeter(
@@ -151,23 +193,23 @@ def generate_labels(train_loader, model, fine_to_coarse, args):
         for embeddings in embeddings_by_class]
     prototype_by_class = torch.stack(prototype_by_class, dim=0).detach().numpy()
     print(prototype_by_class.shape)
-    np.save('cifar_prototypes_{}.npy'.format(args.seed), prototype_by_class)
+    np.save('{}_prototypes_{}.npy'.format(args.dataset.replace('/', ''), args.seed), prototype_by_class)
 
     #prototype_by_class = np.load('cifar_prototypes.npy')
-    colors = []
-    for r in [0.1, 0.5, 1]:
-        for g in [0.1, 1]:
-            for b in [0.1, 0.5, 1]:
-                colors.append((r, g, b))
-    colors.append((0.75, 0.75, 0.5)); colors.append((0.25, 0.25, 0.5))
+    # colors = []
+    # for r in [0.1, 0.5, 1]:
+    #     for g in [0.1, 1]:
+    #         for b in [0.1, 0.5, 1]:
+    #             colors.append((r, g, b))
+    # colors.append((0.75, 0.75, 0.5)); colors.append((0.25, 0.25, 0.5))
 
-    # # Compute t-SNE embeddings
-    tsne_embeddings = TSNE(n_components=2).fit_transform(prototype_by_class)
-    # # Plot the t-SNE embeddings
-    plt.scatter(tsne_embeddings[:, 0], tsne_embeddings[:, 1], \
-        c=[colors[fine_to_coarse[i]] for i in range(100)])
-    plt.savefig('tsne_embeddings_{}.png'.format(args.seed))
-    plt.show()
+    # # # Compute t-SNE embeddings
+    # tsne_embeddings = TSNE(n_components=2).fit_transform(prototype_by_class)
+    # # # Plot the t-SNE embeddings
+    # plt.scatter(tsne_embeddings[:, 0], tsne_embeddings[:, 1], \
+    #     c=[colors[fine_to_coarse[i]] for i in range(100)])
+    # plt.savefig('tsne_embeddings_{}.png'.format(args.seed))
+    # plt.show()
 
     return
 

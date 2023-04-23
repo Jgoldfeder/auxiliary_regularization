@@ -3,21 +3,12 @@ python main_simsiam.py \
   --gpu 0 \
   --batch-size 64 \
   --print-freq 100 \
-  --seed 4 \
-  cifar100
-
-python generate_labels.py \
-  --gpu 0 \
-  --seed 4
-
-python main_simsiam.py \
-  -a resnet50 \
-  --gpu 0 \
-  --batch-size 64 \
-  --print-freq 100 \
   --seed 5 \
-  cifar100
+  --dataset-download \
+  --dataset aircraft \
+  --train-split "test" \
 
-python generate_labels.py \
-  --gpu 0 \
-  --seed 5
+# python generate_labels.py \
+#   --gpu 0 \
+#   --dataset tfds/caltech101 \
+#   --seed 5
