@@ -1,1 +1,16 @@
-CUDA_VISIBLE_DEVICES=2 python3 train.py torch/cifar100 -d torch/cifar100  --num-classes=100 -b=64 --img-size=224 --epochs=50 --color-jitter=0   --sched='cosine' --model-ema --model-ema-decay=0.995  --reprob=0.5 --smoothing=0.1  --min-lr=1e-8 --warmup-epochs=3 --train-interpolation=bilinear --aa=v0 --pretrained --lr=2e-4 --model=resnet50 --opt=adam --weight-decay=1e-4 --output data/auxiliary/contrastive --log-interval 150 --log-wandb --dataset-download
+# python simsiam/main_simsiam.py \
+#   -a resnet50 \
+#   --gpu 1 \
+#   --batch-size 64 \
+#   --print-freq 100 \
+#   --seed 5 \
+#   --dataset-download \
+#   --dataset tfds/caltech101 \
+#   --train-split "test" \
+
+python simsiam/generate_labels.py \
+  --gpu 1 \
+  --dataset-download \
+  --num-classes 102 \
+  --dataset tfds/caltech101 \
+  --seed 5
