@@ -3,7 +3,7 @@
 # for this script:
 # device seed
 
-# device dataset num_classes experiment seed val_split
+# device dataset num_classes experiment seed val_split 
 
 bash pretrain_script.sh  $1 "torch/cifar100" 100 "exp_cifar100" $2 "validation"
 

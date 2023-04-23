@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# device dataset num_classes experiment seed val_split
+# device dataset num_classes experiment seed val_split 
 
 # generate contrastive labels
 python simsiam/main_simsiam.py -a resnet50 --gpu $1 --dataset $2 --batch-size 64 --print-freq 500 --seed $5 --dataset-download
