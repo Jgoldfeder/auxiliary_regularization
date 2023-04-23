@@ -805,8 +805,9 @@ def main():
                 eval_metrics["best_acc"] = best_metric
                 best_top5 = max(best_top5, eval_metrics["top5"])
                 eval_metrics["best_top5"] = best_top5
-                best_denseTop1 = max(best_denseTop1, eval_metrics["dense_top1"])
-                eval_metrics["best_dense"] = best_denseTop1
+                if args.dual:
+                    best_denseTop1 = max(best_denseTop1, eval_metrics["dense_top1"])
+                    eval_metrics["best_dense"] = best_denseTop1
                 #eval_metrics["best_top5"] = best_top5 # TODO: update best_top5
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
