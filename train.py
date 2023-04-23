@@ -25,6 +25,8 @@ import torch.nn as nn
 import torchvision.utils
 import aircraft
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
+import attack
+import sys
 
 from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
 from timm.models import create_model, safe_model_name, resume_checkpoint, load_checkpoint,\
@@ -311,6 +313,10 @@ parser.add_argument('--contrastive', action='store_true', default=False,
 
 parser.add_argument('--metabalance', action='store_true', default=False,
                     help='Use metabalance mode.')   
+
+parser.add_argument('--attack', action='store_true', default=False,
+                    help='Use attack mode.')
+
 parser.add_argument('--pcgrad', action='store_true', default=False,
                     help='Use pcgrad mode.')   
 parser.add_argument('--bottleneck', type=int, default=64, )
@@ -333,8 +339,11 @@ def _parse_args():
     # make sure aux flags are set properly
     if args.metabalance or args.pcgrad:
         args.dual = True
-    return args, args_text
 
+    # if attacking set batch to 1
+    if args.attack:
+        args.batch_size=1
+    return args, args_text
 
 def main():
     setup_default_logging()
@@ -701,6 +710,54 @@ def main():
     if args.dual:
         model.secondary_optim=secondary_optim
         model.third_optim=third_optim
+    if args.attack:
+        if args.resume == '':
+            raise ValueError('resume checkpoint must be provided when attacking!')
+        num_classes = args.num_classes
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        attackloader = loader_eval
+        num_steps = 5
+        epsilons = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+        
+        print("Test FGSM untargeted")
+        fgsm_acc = []
+        fgsm_examples = []
+        for eps in epsilons:
+            acc, ex = attack.test_fgsm_untargeted(model, device, attackloader, eps)
+            fgsm_acc.append(acc)
+            fgsm_examples.append(ex)
+
+        print("Test FGSM targeted")
+        fgsm_targeted_acc = []
+        fgsm_targeted_examples = []
+        for eps in epsilons:
+            acc, ex = attack.test_fgsm_targeted(model, num_classes, device, attackloader, eps)
+            fgsm_targeted_acc.append(acc)
+            fgsm_targeted_examples.append(ex)
+
+        print("Test iterative untargeted")
+        iter_acc = []
+        iter_examples = []
+        for eps in epsilons:
+            alpha = eps / num_steps
+            acc, ex = args.test_iterative_untargeted(
+                model, device, attackloader, eps, alpha, num_steps
+            )
+            iter_acc.append(acc)
+            iter_examples.append(ex)
+
+        print("Test iterative targeted")
+        iter_targeted_acc = []
+        iter_targeted_examples = []
+        for eps in epsilons:
+            alpha = eps / num_steps
+            acc, ex = test_iterative_targeted(
+                model, num_classes, device, attackloader, mels, eps, alpha, num_steps
+            )
+            iter_targeted_acc.append(acc)
+            iter_targeted_examples.append(ex)
+
+        sys.exit()
     try:
         for epoch in range(start_epoch, num_epochs):
             #model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, dual_loss_fn=train_loss_fn)

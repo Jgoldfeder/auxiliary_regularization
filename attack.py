@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import pdb
 
 def fgsm_attack(image, epsilon, data_grad):
     # Collect the element-wise sign of the data gradient
@@ -32,6 +32,7 @@ def test_fgsm_untargeted(model, device, test_loader, epsilon):
         init_pred = output.max(1, keepdim=True)[1]
 
         # If the initial prediction is wrong, dont bother attacking, just move on
+        #pdb.set_trace()
         if init_pred.item() != target.item():
             continue
         elif epsilon == 0:
