@@ -27,16 +27,40 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
+from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+import tensorflow as tf
+
 import simsiam.loader
 import simsiam.builder
+
+import sys
+sys.path.append('../')
+import aircraft
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data', metavar='DIR',
-                    help='path to dataset')
+# Dataset parameters
+# parser.add_argument('data_dir', metavar='DIR',
+#                     help='path to dataset')
+parser.add_argument('--dataset', '-d', metavar='NAME', default='',
+                    help='dataset type (default: ImageFolder/ImageTar if empty)')
+parser.add_argument('--train-split', metavar='NAME', default='train',
+                    help='dataset train split (default: train)')
+parser.add_argument('--val-split', metavar='NAME', default='validation',
+                    help='dataset validation split (default: validation)')
+parser.add_argument('--dataset-download', action='store_true', default=False,
+                    help='Allow download of dataset for torch/ and tfds/ datasets that support it.')
+parser.add_argument('--class-map', default='', type=str, metavar='FILENAME',
+                    help='path to class to idx mapping file (default: "")')
+# parser.add_argument('data', metavar='DIR',
+#                     help='path to dataset')
+parser.add_argument('--epoch-repeats', type=float, default=0., metavar='N',
+                    help='epoch repeat multiplier (number of times to repeat dataset epoch per train epoch).')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     choices=model_names,
                     help='model architecture: ' +
@@ -221,7 +245,7 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     # Data loading code
-    traindir = os.path.join(args.data, 'train')
+    #traindir = os.path.join(args.data, 'train')
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
@@ -243,8 +267,28 @@ def main_worker(gpu, ngpus_per_node, args):
         traindir,
         simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)))
     """
+    """
     train_dataset = datasets.CIFAR100(download=True, train=True, root=traindir,\
                             transform=simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)))
+    """
+    # create the train and eval datasets
+    # if not os.path.exists(args.data_dir):
+    #     os.makedirs(args.data_dir, exist_ok=True)
+    if args.dataset != "aircraft":
+        train_dataset = create_dataset(
+            args.dataset, root=args.dataset, split=args.train_split, is_training=True,
+            class_map=args.class_map,
+            download=args.dataset_download,
+            batch_size=args.batch_size,
+            repeats=args.epoch_repeats,
+            transform=simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation))
+            )
+        # train_dataset = create_dataset(
+        #     'tfds/caltech101', 'beans', download=True, split='train[:10%]', batch_size=2, is_training=True
+        #     )
+    else:
+        train_dataset = aircraft.Aircraft('./aircraft', train=True, download=args.dataset_download,
+            transform=simsiam.loader.TwoCropsTransform(transforms.Compose(augmentation)))
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -252,7 +296,7 @@ def main_worker(gpu, ngpus_per_node, args):
         train_sampler = None
 
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
+        train_dataset, batch_size=args.batch_size, shuffle=False,#(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True)
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -267,7 +311,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
-            torch.save(model.state_dict(), 'current_contrastive_label_network_{}.pth'.format(args.seed))
+            torch.save(model.state_dict(), 'current_contrastive_label_network_{}_{}.pth'.format(args.dataset.replace('/', ''), args.seed))
             # save_checkpoint({
             #     'epoch': epoch + 1,
             #     'arch': args.arch,
@@ -277,8 +321,8 @@ def main_worker(gpu, ngpus_per_node, args):
         if curr_train_loss < best_train_loss:
             best_train_loss = curr_train_loss
             best_train_epoch = epoch
-            torch.save(model.state_dict(), 'best_contrastive_label_network_{}.pth'.format(args.seed))
-            print('saving on epoch {} with loss {}'.format(best_train_loss, best_train_epoch))
+            torch.save(model.state_dict(), 'best_contrastive_label_network_{}_{}.pth'.format(args.dataset.replace('/', ''), args.seed))
+            print('saving on epoch {} with loss {}'.format(best_train_epoch, best_train_loss))
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
