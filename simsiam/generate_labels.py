@@ -72,7 +72,7 @@ parser.add_argument('-b', '--batch-size', default=4096, type=int,
                     help='mini-batch size (default: 4096), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('-p', '--print-freq', default=1, type=int,
+parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
@@ -138,13 +138,13 @@ def generate_labels(train_loader, model, args):
 
     # switch to eval mode
     model.eval()
-    torch.no_grad()
 
     end = time.time()
 
     embeddings_by_class = [torch.zeros(args.dim) for i in range(args.num_classes)]
     count_by_class = [0 for i in range(args.num_classes)]
     print('about to load images')
+    the_classes = set()
     for i, (images, labels) in enumerate(train_loader):
         images, labels = images.to(args.gpu), labels.to(args.gpu)
         # measure data loading time
@@ -158,6 +158,7 @@ def generate_labels(train_loader, model, args):
             curr_label = labels[item_idx].item()
             embeddings_by_class[curr_label] += output[item_idx].to(torch.float64).cpu()
             count_by_class[curr_label] += 1
+            the_classes.add(curr_label)
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -176,12 +177,14 @@ def generate_labels(train_loader, model, args):
     print(prototype_by_class.shape)
     np.save('{}_prototypes_{}.npy'.format(args.dataset.replace('/', ''), args.seed), prototype_by_class)
 
+    #print(torch.mean(torch.from_numpy(prototype_by_class), dim=0))
+
     # # Compute t-SNE embeddings
     tsne_embeddings = TSNE(n_components=2).fit_transform(prototype_by_class)
     # # Plot the t-SNE embeddings
     plt.scatter(tsne_embeddings[:, 0], tsne_embeddings[:, 1])
     plt.savefig('tsne_embeddings_{}.png'.format(args.seed))
-    plt.show()
+    #plt.show()
 
     return
 
