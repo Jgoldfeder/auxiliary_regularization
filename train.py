@@ -678,6 +678,8 @@ def main():
     eval_metric = args.eval_metric
     best_metric = None
     best_epoch = None
+    best_top5 = -1
+    best_denseTop1 = -1
     saver = None
     output_dir = None
     if args.rank == 0:
@@ -742,6 +744,10 @@ def main():
 
             if output_dir is not None:
                 eval_metrics["best_acc"] = best_metric
+                best_top5 = max(best_top5, eval_metrics["top5"])
+                eval_metrics["best_top5"] = best_top5
+                best_denseTop1 = max(best_denseTop1, eval_metric["dense_top1"])
+                eval_metrics["best_dense"] = best_denseTop1
                 #eval_metrics["best_top5"] = best_top5 # TODO: update best_top5
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
@@ -985,10 +991,6 @@ def train_one_epoch_metabalance(
 
         metabalancer.step(loss)
         optimizer2.step()
-
-
-
-
 
         if model_ema is not None:
             model_ema.update(model)
