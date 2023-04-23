@@ -39,29 +39,6 @@ model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
-# cifar100_coarse_to_fine = {
-#     'aquatic mammals': ['beaver', 'dolphin', 'otter', 'seal', 'whale'],
-#     'fish': ['aquarium_fish', 'flatfish', 'ray', 'shark', 'trout'],
-#     'flowers': ['orchid', 'poppy', 'rose', 'sunflower', 'tulip'],
-#     'food containers': ['bottle', 'bowl', 'can', 'cup', 'plate'],
-#     'fruit and vegetables': ['apple', 'mushroom', 'orange', 'pear', 'sweet_pepper'],
-#     'household electrical devices': ['clock', 'keyboard', 'lamp', 'telephone', 'television'],
-#     'household furniture': ['bed', 'chair', 'couch', 'table', 'wardrobe'],
-#     'insects': ['bee', 'beetle', 'butterfly', 'caterpillar', 'cockroach'],
-#     'large carnivores': ['bear', 'leopard', 'lion', 'tiger', 'wolf'],
-#     'large man-made outdoor things': ['bridge', 'castle', 'house', 'road', 'skyscraper'],
-#     'large natural outdoor scenes': ['cloud', 'forest', 'mountain', 'plain', 'sea'],
-#     'large omnivores and herbivores': ['camel', 'cattle', 'chimpanzee', 'elephant', 'kangaroo'],
-#     'medium-sized mammals': ['fox', 'porcupine', 'possum', 'raccoon', 'skunk'],
-#     'non-insect invertebrates': ['crab', 'lobster', 'snail', 'spider', 'worm'],
-#     'people': ['baby', 'boy', 'girl', 'man', 'woman'],
-#     'reptiles': ['crocodile', 'dinosaur', 'lizard', 'snake', 'turtle'],
-#     'small mammals': ['hamster', 'mouse', 'rabbit', 'shrew', 'squirrel'],
-#     'trees': ['maple_tree', 'oak_tree', 'palm_tree', 'pine_tree', 'willow_tree'],
-#     'vehicles 1': ['bicycle', 'bus', 'motorcycle', 'pickup_truck', 'train'],
-#     'vehicles 2': ['lawn_mower', 'rocket', 'streetcar', 'tank', 'tractor']
-# }
-
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--dataset', '-d', metavar='NAME', default='',
                     help='dataset type (default: ImageFolder/ImageTar if empty)')
@@ -122,25 +99,9 @@ def main():
             batch_size=args.batch_size,
             repeats=args.epoch_repeats,
             transform=the_transform)
-        # train_dataset = create_dataset(
-        #     'tfds/caltech101', 'beans', download=True, split='train[:10%]', batch_size=2, is_training=True
-        #     )
     else:
         train_dataset = aircraft.Aircraft('./aircraft', train=True, download=args.dataset_download,
             transform=the_transform)
-
-    # train_dataset = datasets.CIFAR100(download=True, train=True, root=args.dir,\
-    #                             transform=transforms.ToTensor())
-
-    # #print(train_dataset.classes)
-    # cifar100_label_to_idx = {label: idx for idx, label in enumerate(train_dataset.classes)}
-    # coarse_label_to_idx = {key: idx for idx, key in enumerate([x for x in cifar100_coarse_to_fine])}
-    # fine_to_coarse = [None for i in range(100)]
-    # for curr_coarse_label in cifar100_coarse_to_fine:
-    #     the_curr_fine_labels = cifar100_coarse_to_fine[curr_coarse_label]
-    #     for curr_fine_label in the_curr_fine_labels:
-    #         curr_fine_index = cifar100_label_to_idx[curr_fine_label]
-    #         fine_to_coarse[curr_fine_index] = coarse_label_to_idx[curr_coarse_label]
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=False,
@@ -195,21 +156,12 @@ def generate_labels(train_loader, model, args):
     print(prototype_by_class.shape)
     np.save('{}_prototypes_{}.npy'.format(args.dataset.replace('/', ''), args.seed), prototype_by_class)
 
-    #prototype_by_class = np.load('cifar_prototypes.npy')
-    # colors = []
-    # for r in [0.1, 0.5, 1]:
-    #     for g in [0.1, 1]:
-    #         for b in [0.1, 0.5, 1]:
-    #             colors.append((r, g, b))
-    # colors.append((0.75, 0.75, 0.5)); colors.append((0.25, 0.25, 0.5))
-
-    # # # Compute t-SNE embeddings
-    # tsne_embeddings = TSNE(n_components=2).fit_transform(prototype_by_class)
-    # # # Plot the t-SNE embeddings
-    # plt.scatter(tsne_embeddings[:, 0], tsne_embeddings[:, 1], \
-    #     c=[colors[fine_to_coarse[i]] for i in range(100)])
-    # plt.savefig('tsne_embeddings_{}.png'.format(args.seed))
-    # plt.show()
+    # # Compute t-SNE embeddings
+    tsne_embeddings = TSNE(n_components=2).fit_transform(prototype_by_class)
+    # # Plot the t-SNE embeddings
+    plt.scatter(tsne_embeddings[:, 0], tsne_embeddings[:, 1])
+    plt.savefig('tsne_embeddings_{}.png'.format(args.seed))
+    plt.show()
 
     return
 
