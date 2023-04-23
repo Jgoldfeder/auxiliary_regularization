@@ -709,6 +709,7 @@ def main():
             #    model.secondary_optim = model.third_optim
             if args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
                 loader_train.sampler.set_epoch(epoch)
+            
             if args.metabalance:
                 train_metrics = train_one_epoch_metabalance(
                     epoch, model, loader_train, (optimizer1,optimizer2,metabalancer), train_loss_fn, args,
@@ -719,6 +720,7 @@ def main():
                     epoch, model, loader_train, optimizer, train_loss_fn, args,
                     lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
                     amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
+            
 
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if args.local_rank == 0:
@@ -746,7 +748,7 @@ def main():
                 eval_metrics["best_acc"] = best_metric
                 best_top5 = max(best_top5, eval_metrics["top5"])
                 eval_metrics["best_top5"] = best_top5
-                best_denseTop1 = max(best_denseTop1, eval_metric["dense_top1"])
+                best_denseTop1 = max(best_denseTop1, eval_metrics["dense_top1"])
                 eval_metrics["best_dense"] = best_denseTop1
                 #eval_metrics["best_top5"] = best_top5 # TODO: update best_top5
                 update_summary(
@@ -1119,7 +1121,10 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='',
                         log_name, batch_idx, last_idx, batch_time=batch_time_m,
                         loss=losses_m, top1=top1_m, top5=top5_m))
 
-    metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg), ('dense_top1', dense_top1_m.avg)])
+    if args.dual:
+        metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg), ('dense_top1', dense_top1_m.avg)])
+    else:
+        metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
 
     return metrics
 
