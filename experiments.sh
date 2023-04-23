@@ -19,6 +19,6 @@ bash pretrain_script.sh  $1 "tfds/oxford_flowers102" 102 "exp_oxford_flowers102"
 
 bash pretrain_script.sh  $1 "tfds/caltech_birds2011" 200 "exp_caltech_birds2011" $2 "test"
 
-bash pretrain_script.sh  $1 "aircraft" 102 "exp_aircraft" $2 "validation"
+bash pretrain_script.sh  $1 "aircraft" 100 "exp_aircraft" $2 "validation" # seems that we only have 100, but site says 102
 
 bash pretrain_script.sh  $1 "tfds/caltech101" 102 "exp_caltech101" $2 "test"
