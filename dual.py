@@ -75,21 +75,21 @@ class DualLoss(nn.Module):
         super(DualLoss, self).__init__()
         
         self.args = args
-        # TODO: change dense loss
         self.dense_loss = nn.BCEWithLogitsLoss()
         self.categorical_loss = loss
-        # TODO: change dense labels
         if args.contrastive:
+            print('using contrastive labels')
+            short_embeddings = np.load('{}_prototypes_{}.npy'.format(args.dataset.replace('/', ''), self.args.seed))
             dense_embeddings = np.concatenate(\
-                (np.load('simsiam/cifar_prototypes_{}.npy'.format(self.args.seed - 1)), \
-                np.load('simsiam/cifar_prototypes_{}.npy'.format(self.args.seed))), \
-                axis=1)
+                (short_embeddings, short_embeddings), \
+            axis=1)
             medians = np.median(dense_embeddings, axis=0)
             dense_binary_embeddings = np.where(dense_embeddings > medians, 1, 0)
         else:
+            print('using random labels')
             dense_binary_embeddings = np.random.choice([0, 1], size=(num_classes,64*64)).astype("float32")
         import matplotlib.pyplot as plt
-        plt.imsave('dense binary embeddings.png', dense_binary_embeddings, cmap='gray')
+        plt.imsave('dense binary embeddings {} {}.png'.format(args.dataset.replace('/', ''), args.seed), dense_binary_embeddings, cmap='gray')
         #plt.show()
         self.dense_labels = torch.tensor(dense_binary_embeddings.astype('float32'))
         self.num_classes = num_classes
