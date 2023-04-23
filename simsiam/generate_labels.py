@@ -151,7 +151,8 @@ def generate_labels(train_loader, model, args):
         data_time.update(time.time() - end)
 
         # compute output and loss
-        output = model(images)
+        with torch.no_grad():
+            output = model(images)
 
         for item_idx in range(labels.shape[0]):
             curr_label = labels[item_idx].item()
