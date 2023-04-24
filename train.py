@@ -26,6 +26,7 @@ import torchvision.utils
 import aircraft
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 import attack
+import attack_high_dim
 import sys
 
 from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
@@ -342,7 +343,7 @@ def _parse_args():
 
     return args, args_text
 
-def run_attack(model,num_classes,device,attackloader,num_steps,epsilons):
+def run_attack(model,num_classes,device,attackloader,num_steps,epsilons, mels=None):
     print("Test FGSM untargeted")
     fgsm_acc = []
     fgsm_examples = []
@@ -411,6 +412,90 @@ def run_attack(model,num_classes,device,attackloader,num_steps,epsilons):
         {"iter_acc targeted" : wandb.plot.line(table, "x", "y",
             title="iter_acc targeted")})
     
+
+    if mels is None:
+        return 
+    
+    # if dual model, attack dense head
+    class DenseWrapper(nn.Module):
+        def __init__(self,model):
+            self.model = model
+        def forward(x):
+            return self.model(x,True)[1]
+        
+    model = DenseWrapper(model)
+
+
+    print("Test FGSM untargeted dense")
+    fgsm_acc = []
+    fgsm_examples = []
+    for eps in epsilons:
+        acc, ex = attack_high_dim.test_fgsm_untargeted(model, device, attackloader, eps, mels)
+        fgsm_acc.append(acc)
+        fgsm_examples.append(ex)
+
+    # log
+    data = [[x, y] for (x, y) in zip(epsilons, fgsm_acc)]
+    table = wandb.Table(data=data, columns = ["eps", "acc"])
+    wandb.log(
+        {"fgsm_acc untargeted dense" : wandb.plot.line(table, "x", "y",
+            title="fgsm_acc untargeted dense")})
+
+
+
+    print("Test FGSM targeted dense")
+    fgsm_targeted_acc = []
+    fgsm_targeted_examples = []
+    for eps in epsilons:
+        acc, ex = attack_high_dim.test_fgsm_targeted(model, num_classes, device, attackloader, eps,mels)
+        fgsm_targeted_acc.append(acc)
+        fgsm_targeted_examples.append(ex)
+
+    # log
+    data = [[x, y] for (x, y) in zip(epsilons, fgsm_targeted_acc)]
+    table = wandb.Table(data=data, columns = ["eps", "acc"])
+    wandb.log(
+        {"fgsm_acc targeted dense" : wandb.plot.line(table, "x", "y",
+            title="fgsm_acc targeted dense")})
+
+
+    print("Test iterative untargeted dense")
+    iter_acc = []
+    iter_examples = []
+    for eps in epsilons:
+        alpha = eps / num_steps
+        acc, ex = attack_high_dim.test_iterative_untargeted(
+            model, device, attackloader, mels, eps, alpha, num_steps
+        )
+        iter_acc.append(acc)
+        iter_examples.append(ex)
+
+    # log
+    data = [[x, y] for (x, y) in zip(epsilons, iter_acc)]
+    table = wandb.Table(data=data, columns = ["eps", "acc"])
+    wandb.log(
+        {"iter_acc untargeted dense" : wandb.plot.line(table, "x", "y",
+            title="iter_acc untargeted dense")})
+    
+    print("Test iterative targeted dense")
+    iter_targeted_acc = []
+    iter_targeted_examples = []
+    for eps in epsilons:
+        alpha = eps / num_steps
+        acc, ex = attack_high_dim.test_iterative_targeted(
+            model, num_classes, device, attackloader, mels, eps, alpha, num_steps
+        )
+        iter_targeted_acc.append(acc)
+        iter_targeted_examples.append(ex)
+    # log
+    data = [[x, y] for (x, y) in zip(epsilons, iter_targeted_acc)]
+    table = wandb.Table(data=data, columns = ["eps", "acc"])
+    wandb.log(
+        {"iter_acc targeted dense" : wandb.plot.line(table, "x", "y",
+            title="iter_acc targeted dense")})
+    
+
+
 def main():
     setup_default_logging()
     args, args_text = _parse_args()
@@ -798,8 +883,10 @@ def main():
         attackloader = loader_attack
         num_steps = 5
         epsilons = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-        
-        run_attack(model,num_classes,device,attackloader,num_steps,epsilons)
+        mels = None
+        if args.dual:
+            mels = train_loss_fn.dense_labels
+        run_attack(model,num_classes,device,attackloader,num_steps,epsilons,mels)
         sys.exit()
     try:
         for epoch in range(start_epoch, num_epochs):
@@ -876,8 +963,10 @@ def main():
             attackloader = loader_attack
             num_steps = 5
             epsilons = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-            
-            run_attack(model,num_classes,device,attackloader,num_steps,epsilons)
+            mels = None
+            if args.dual:
+                mels = train_loss_fn.dense_labels
+            run_attack(model,num_classes,device,attackloader,num_steps,epsilons,mels)
 
     except KeyboardInterrupt:
         pass
