@@ -400,7 +400,7 @@ def run_attack(model,num_classes,device,attackloader,num_steps,epsilons):
     for eps in epsilons:
         alpha = eps / num_steps
         acc, ex = attack.test_iterative_targeted(
-            model, num_classes, device, attackloader, mels, eps, alpha, num_steps
+            model, num_classes, device, attackloader, eps, alpha, num_steps
         )
         iter_targeted_acc.append(acc)
         iter_targeted_examples.append(ex)
