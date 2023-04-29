@@ -25,16 +25,22 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
-import simsiam.loader
-import simsiam.builder
+from tqdm import tqdm
 
 import sys
 sys.path.append(os.path.join(sys.path[0], '../'))
 import aircraft
 
+sys.path.append(os.path.join(sys.path[0], 'simsiam/simsiam'))
+import loader
+import builder
+
+sys.path.append(os.path.join(sys.path[0], 'simsiam'))
 from main_simsiam import ProgressMeter, AverageMeter
 
 from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
+from timm.models import create_model, safe_model_name, resume_checkpoint, load_checkpoint,\
+    convert_splitbn_model, model_parameters
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 import tensorflow as tf
@@ -121,15 +127,15 @@ def main():
         num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
     
     model = create_model(
-        args.model,
+        args.arch,
         pretrained=args.pretrained,
         num_classes=args.num_classes)
 
     print('loading network')
-    model.load_state_dict(torch.load(args.best_model)))
+    #model.load_state_dict(torch.load(args.best_model))
 
     model = model.to(args.gpu)
-    model.encoder = nn.Sequential(*list(self.model.children())[:-1])
+    model.encoder = nn.Sequential(*list(model.children())[:-1])
 
     print('plotting tsne labels')
     plot_tsne(val_loader, model, args)
@@ -150,10 +156,10 @@ def plot_tsne(val_loader, model, args):
     the_embeddings = list()
     the_classes = list()
     print('about to load images')
-    for i, (images, labels) in enumerate(val_loader):
+    for i, (images, labels) in enumerate(tqdm(val_loader)):
         images, labels = images.to(args.gpu), labels.to(args.gpu)
         # measure data loading time
-        data_time.update(time.time() - end)
+        # data_time.update(time.time() - end)
 
         # compute output and loss
         with torch.no_grad():
@@ -161,14 +167,14 @@ def plot_tsne(val_loader, model, args):
 
         for item_idx in range(labels.shape[0]):
             curr_label = labels[item_idx].item()
-            the_embeddings.append(output[item_idx].to(torch.float64).cpu())
+            the_embeddings.append(output[item_idx].to(torch.float64).cpu().numpy())
             the_classes.append(curr_label)
         # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
+        # batch_time.update(time.time() - end)
+        # end = time.time()
 
-        if i % args.print_freq == 0:
-            progress.display(i)
+        # if i % args.print_freq == 0:
+        #     progress.display(i)
 
     #print(torch.mean(torch.from_numpy(prototype_by_class), dim=0))
 
@@ -178,7 +184,7 @@ def plot_tsne(val_loader, model, args):
     # # Sort t-SNE embeddings by class
     embeddings_by_class = [list() for i in range(args.num_classes)]
     assert len(tsne_embeddings) == len(the_classes)
-    assert len(embeddings) = len(the_classes)
+    assert len(embeddings_by_class) == len(the_classes)
     for i in range(len(tsne_embeddings)):
         the_class = the_classes[i]
         embeddings_by_class[the_class].append(tsne_embeddings[i])

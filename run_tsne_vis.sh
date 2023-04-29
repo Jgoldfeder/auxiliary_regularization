@@ -1,0 +1,1 @@
+python3 visualize_tsne.py -d torch/cifar100 --dataset-download --a resnet50 --gpu 0 -b 64
