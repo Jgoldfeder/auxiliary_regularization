@@ -8,7 +8,7 @@ import time
 import warnings
 import numpy as np
 
-from sklearn.manifold import TSNE
+from tsnecuda import TSNE
 import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 
@@ -86,8 +86,8 @@ parser.add_argument('-b', '--batch-size', default=4096, type=int,
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
-parser.add_argument('--gpu', default=None, type=int,
-                    help='GPU id to use.')
+# parser.add_argument('--gpu', default=None, type=int,
+#                     help='GPU id to use.')
 parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
 
@@ -134,7 +134,7 @@ def main():
     print('loading network')
     #model.load_state_dict(torch.load(args.best_model))
 
-    model = model.to(args.gpu)
+    model = model.cuda()
     model.encoder = nn.Sequential(*list(model.children())[:-1])
 
     print('plotting tsne labels')
@@ -157,7 +157,7 @@ def plot_tsne(val_loader, model, args):
     the_classes = list()
     print('about to load images')
     for i, (images, labels) in enumerate(tqdm(val_loader)):
-        images, labels = images.to(args.gpu), labels.to(args.gpu)
+        images, labels = images.cuda(), labels.cuda()
         # measure data loading time
         # data_time.update(time.time() - end)
 
@@ -179,23 +179,27 @@ def plot_tsne(val_loader, model, args):
     #print(torch.mean(torch.from_numpy(prototype_by_class), dim=0))
 
     # # Compute t-SNE embeddings
+    the_embeddings = np.array(the_embeddings)
     tsne_embeddings = TSNE(n_components=2).fit_transform(the_embeddings)
 
     # # Sort t-SNE embeddings by class
     embeddings_by_class = [list() for i in range(args.num_classes)]
+    # print(len(tsne_embeddings))
+    # print(len(the_classes))
     assert len(tsne_embeddings) == len(the_classes)
-    assert len(embeddings_by_class) == len(the_classes)
     for i in range(len(tsne_embeddings)):
         the_class = the_classes[i]
         embeddings_by_class[the_class].append(tsne_embeddings[i])
     
+    # print(len(embeddings_by_class))
+    # print(len(the_classes))
     # # Plot the t-SNE embeddings
-    assert len(embeddings_by_class) == len(the_classes)
+    assert len(embeddings_by_class) == args.num_classes
     for i in range(len(embeddings_by_class)):
         curr_class_embeddings = embeddings_by_class[i]
         curr_class_embeddings = np.stack(curr_class_embeddings)
         curr_class = the_classes[i]
-        plt.scatter(curr_class_embeddings[:,0], curr_class_embeddings[:,1], c=numpy.random.rand(3,), label=i)
+        plt.scatter(curr_class_embeddings[:,0], curr_class_embeddings[:,1], c=np.random.rand(3,), label=i)
     #plt.scatter(tsne_embeddings[:, 0], tsne_embeddings[:, 1])
     plt.savefig(args.filename)
     plt.show()
