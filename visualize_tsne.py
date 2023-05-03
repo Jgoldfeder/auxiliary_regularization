@@ -38,6 +38,8 @@ import builder
 sys.path.append(os.path.join(sys.path[0], 'simsiam'))
 from main_simsiam import ProgressMeter, AverageMeter
 
+from dual import DualModel
+
 from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
 from timm.models import create_model, safe_model_name, resume_checkpoint, load_checkpoint,\
     convert_splitbn_model, model_parameters
@@ -72,11 +74,13 @@ parser.add_argument('--filename', default='moo.pdf', type=str,
 #                     help='path to dataset')
 parser.add_argument('--epoch-repeats', type=float, default=0., metavar='N',
                     help='epoch repeat multiplier (number of times to repeat dataset epoch per train epoch).')
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
+parser.add_argument('--model', metavar='ARCH', default='resnet50',
                     choices=model_names,
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet50)')
+parser.add_argument('--dual', action='store_true',
+                    help='whether we use the dual model')
 parser.add_argument('-j', '--workers', default=32, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
 parser.add_argument('-b', '--batch-size', default=4096, type=int,
@@ -111,7 +115,7 @@ def main():
     print('loading dataset')
     if args.dataset != "aircraft":
         train_dataset = create_dataset(
-            args.dataset, root=args.dataset, split=args.train_split, is_training=False,
+            args.dataset, root=args.dataset, split=args.val_split, is_training=False,
             class_map=args.class_map,
             download=args.dataset_download,
             batch_size=args.batch_size,
@@ -127,12 +131,18 @@ def main():
         num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
     
     model = create_model(
-        args.arch,
+        args.model,
         pretrained=args.pretrained,
         num_classes=args.num_classes)
 
     print('loading network')
-    #model.load_state_dict(torch.load(args.best_model))
+
+    if args.dual:
+        model = DualModel(model, args)
+        model.load_state_dict(torch.load(args.best_model)['state_dict'])
+        model = model.model
+    else:
+        model.load_state_dict(torch.load(args.best_model)['state_dict'])
 
     model = model.cuda()
     model.encoder = nn.Sequential(*list(model.children())[:-1])

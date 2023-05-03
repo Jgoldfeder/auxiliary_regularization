@@ -1,1 +1,2 @@
-python3 visualize_tsne.py -d torch/cifar100 --dataset-download --a resnet50 --gpu 0 -b 64
+CUDA_VISIBLE_DEVICES=2 python3 visualize_tsne.py -d torch/cifar100 --dataset-download --model resnet50 -b 64 --num-classes 100 --best-model "./output/train/exp_cifar100resnet50 metabalance 1 1 seed 15 lr=2e-4/model_best.pth.tar" --filename cifar_metabalance --dual
+CUDA_VISIBLE_DEVICES=2 python3 visualize_tsne.py -d torch/cifar100 --dataset-download --model resnet50 -b 64 --num-classes 100 --best-model "./output/train/exp_cifar100resnet50 baseline seed 15 lr=2e-4/model_best.pth.tar" --filename cifar_baseline
