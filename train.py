@@ -28,6 +28,32 @@ from torch.nn.parallel import DistributedDataParallel as NativeDDP
 import attack
 import attack_high_dim
 import sys
+from torch.utils.data import Dataset
+
+class SubData(Dataset):
+
+    def __init__(self, dataset,level):
+        self.dataset = dataset
+        self.level = level
+
+        indices = list(range(len(dataset)))
+        import numpy as np
+        np.random.shuffle(indices)
+        amount = int(len(dataset)*(level/100))
+        import torchvision.transforms as transforms
+
+        self.indices = indices[0:amount]
+        self.transform = transforms.Compose([
+            transforms.PILToTensor()
+        ])
+  
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        idx = self.indices[idx]
+        return  self.transform(self.dataset[idx][0]) ,  self.dataset[idx][1] 
+
 
 from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
 from timm.models import create_model, safe_model_name, resume_checkpoint, load_checkpoint,\
@@ -37,6 +63,7 @@ from timm.loss import *
 from timm.optim import create_optimizer_v2, optimizer_kwargs
 from timm.scheduler import create_scheduler
 from timm.utils import ApexScaler, NativeScaler
+
 import dual 
 import metabalance
 import random as rm
@@ -301,6 +328,7 @@ parser.add_argument('--torchscript', dest='torchscript', action='store_true',
                     help='convert model torchscript for inference')
 parser.add_argument('--log-wandb', action='store_true', default=False,
                     help='log training and validation metrics to wandb')
+parser.add_argument("--level", type=int, default=100, help="Data level.")
 
 # auxiliary task parameters
 parser.add_argument('--dual', action='store_true', default=False,
@@ -597,12 +625,17 @@ def main():
     else:
         dataset_train = aircraft.Aircraft('./aircraft', train=True, download=args.dataset_download)
         dataset_eval = aircraft.Aircraft('./aircraft', train=False, download=args.dataset_download)
+
+
+    if args.level < 100:
+        dataset_train = SubData(dataset_train,args.level)
+
+
     class ClassSampler():
         def __init__(self,data):
             divisions = {}
             c  =0
             for b_x,b_y in data:
-                #pdb.set_trace()
                 for i in range(b_y.shape[0]):
                     x,y=b_x[i],b_y[i]
                     y=y.item()
@@ -641,6 +674,8 @@ def main():
     train_interpolation = args.train_interpolation
     if args.no_aug or not train_interpolation:
         train_interpolation = data_config['interpolation']
+
+
     loader_train = create_loader(
         dataset_train,
         input_size=data_config['input_size'],
@@ -700,6 +735,8 @@ def main():
         crop_pct=data_config['crop_pct'],
         pin_memory=args.pin_mem,
     )
+
+
 
     if args.neighbor:
         class_sampler = ClassSampler(loader_train)
@@ -1012,6 +1049,7 @@ def train_one_epoch(
     end = time.time()
     last_idx = len(loader) - 1
     num_updates = epoch * len(loader)
+    
     for batch_idx, (input, target) in enumerate(loader):
         last_batch = batch_idx == last_idx
         data_time_m.update(time.time() - end)
@@ -1157,7 +1195,6 @@ def train_one_epoch_metabalance(
         else:
             output = model(input)
         loss = loss_fn(output, target)
-
         if not args.distributed:
             losses_m.update(loss.item(), input.size(0))
 
@@ -1196,8 +1233,9 @@ def train_one_epoch_metabalance(
         else:
             output = model(input)
         loss = loss_fn(output, target,True)
+        if epoch >= 0:
+            metabalancer.step(loss)
 
-        metabalancer.step(loss)
         optimizer2.step()
 
         if model_ema is not None:
