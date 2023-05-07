@@ -632,10 +632,6 @@ def main():
         dataset_eval = aircraft.Aircraft('./aircraft', train=False, download=args.dataset_download)
 
 
-    if args.level < 100:
-        dataset_train = SubData(dataset_train,args.level)
-
-
     class ClassSampler():
         def __init__(self,data):
             divisions = {}
@@ -1056,6 +1052,8 @@ def train_one_epoch(
     num_updates = epoch * len(loader)
     
     for batch_idx, (input, target) in enumerate(loader):
+        if batch_idx % 100 >= args.level:
+            continue
         last_batch = batch_idx == last_idx
         data_time_m.update(time.time() - end)
         if not args.prefetcher:
