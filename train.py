@@ -30,11 +30,16 @@ import attack_high_dim
 import sys
 from torch.utils.data import Dataset
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+
 class SubData(Dataset):
 
     def __init__(self, dataset,level):
         self.dataset = dataset
         self.level = level
+
+        # lazy fix
+        self.dataset = [item for item in self.dataset]
 
         indices = list(range(len(dataset)))
         import numpy as np
