@@ -1183,6 +1183,8 @@ def train_one_epoch_metabalance(
     last_idx = len(loader) - 1
     num_updates = epoch * len(loader)
     for batch_idx, (input, target) in enumerate(loader):
+        if batch_idx % 100 >= args.level:
+            continue
         last_batch = batch_idx == last_idx
         data_time_m.update(time.time() - end)
         if not args.prefetcher:
