@@ -29,6 +29,7 @@ import attack
 import attack_high_dim
 import sys
 from torch.utils.data import Dataset
+import custom_loader
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 
@@ -677,7 +678,7 @@ def main():
         train_interpolation = data_config['interpolation']
 
 
-    loader_train = create_loader(
+    loader_train = custom_loader.create_loader(
         dataset_train,
         input_size=data_config['input_size'],
         batch_size=args.batch_size,
@@ -705,6 +706,7 @@ def main():
         pin_memory=args.pin_mem,
         use_multi_epochs_loader=args.use_multi_epochs_loader,
         worker_seeding=args.worker_seeding,
+        shuffle=True if args.level == 100 else False
     )
 
     loader_eval = create_loader(
@@ -1052,6 +1054,8 @@ def train_one_epoch(
     num_updates = epoch * len(loader)
     
     for batch_idx, (input, target) in enumerate(loader):
+        # if batch_idx == 0:
+        #     print(target)
         if batch_idx % 100 >= args.level:
             continue
         last_batch = batch_idx == last_idx
