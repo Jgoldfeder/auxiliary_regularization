@@ -252,10 +252,10 @@ def create_loader(
         separate=num_aug_splits > 0,
     )
 
-    if isinstance(dataset, IterableImageDataset):
-        # give Iterable datasets early knowledge of num_workers so that sample estimates
-        # are correct before worker processes are launched
-        dataset.set_loader_cfg(num_workers=num_workers)
+    # if isinstance(dataset, IterableImageDataset):
+    #     # give Iterable datasets early knowledge of num_workers so that sample estimates
+    #     # are correct before worker processes are launched
+    #     dataset.set_loader_cfg(num_workers=num_workers)
 
     sampler = None
     if distributed and not isinstance(dataset, torch.utils.data.IterableDataset):
