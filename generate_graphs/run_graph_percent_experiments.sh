@@ -1,1 +1,1 @@
-python3 graph_percent_experiments.py --dataset cifar10 --levels "1 2 5" --metric_name "Best Validation Accuracy"
+python3 graph_percent_experiments.py --dataset cifar100 --levels "1 2 5" --metric_name "Validation Accuracy"
