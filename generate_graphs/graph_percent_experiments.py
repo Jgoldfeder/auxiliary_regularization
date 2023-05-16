@@ -53,7 +53,7 @@ def calc_all_raw_values(args):
 
     plt.grid()
     plt.legend()
-    plt.savefig('performance_transfer_{}'.format(args.dataset))
+    plt.savefig('performance_transfer_{}.pdf'.format(args.dataset))
     plt.show()
 
     return
