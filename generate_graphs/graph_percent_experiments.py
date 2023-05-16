@@ -12,6 +12,7 @@ def main(args):
     return
 
 def calc_all_percent_improvement(args):
+    plt.clf()
     levels = sorted([int(the_level) for the_level in args.levels.split()])
     percent_improvement = list()
     for level in levels:
@@ -30,6 +31,8 @@ def calc_all_percent_improvement(args):
     return
 
 def calc_all_raw_values(args):
+    plt.clf()
+    
     baseline_results_lowLr = list()
     metabalance_results_lowLr = list()
     baseline_results_highLr = list()
