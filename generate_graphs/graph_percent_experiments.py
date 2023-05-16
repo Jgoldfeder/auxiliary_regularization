@@ -25,7 +25,7 @@ def calc_all_percent_improvement(args):
     plt.axhline(y=0, color = 'r', linestyle = '--', alpha=0.5)
     plt.grid()
     plt.savefig('{}_transfer_lowData.pdf'.format(args.dataset))
-    plt.show()
+    #plt.show()
 
     return
 
@@ -51,10 +51,10 @@ def calc_all_raw_values(args):
     plt.ylabel('Accuracy (%)')
     plt.title(args.dataset)
 
-    plt.grid()
     plt.legend()
+    plt.grid()
     plt.savefig('performance_transfer_{}.pdf'.format(args.dataset))
-    plt.show()
+    #plt.show()
 
     return
 
