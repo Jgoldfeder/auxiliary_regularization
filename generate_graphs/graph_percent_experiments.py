@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 import pandas as pd
+import scipy.stats as stats
 
 def main(args):
     calc_all_percent_improvement(args)
@@ -41,10 +42,10 @@ def calc_all_raw_values(args):
         metabalance_results_lowLr.append(calc_avg_performance_for_technique_and_lr(args, level, 'metabalance', '2e-4'))
         baseline_results_lowLr.append(calc_avg_performance_for_technique_and_lr(args, level, 'baseline', '2e-4'))
 
-    plt.errorbar(levels, [x[0] for x in metabalance_results_lowLr], [x[1] for x in metabalance_results_lowLr], capsize=1, marker='o', color='royalblue', label='Metabalance (lr=2e-4)')
-    plt.errorbar(levels, [x[0] for x in baseline_results_lowLr], [x[1] for x in baseline_results_lowLr], capsize=1, marker='.', color='cornflowerblue', label='Baseline (lr=2e-4)')
-    plt.errorbar(levels, [x[0] for x in metabalance_results_highLr], [x[1] for x in metabalance_results_highLr], capsize=1, marker='X', color='indianred', label='Metabalance (lr=2e-3)')
-    plt.errorbar(levels, [x[0] for x in baseline_results_highLr], [x[1] for x in baseline_results_highLr], capsize=1, marker='x', color='lightcoral', label='Baseline (lr=2e-3)')
+    plt.errorbar(levels, [x[0] for x in metabalance_results_lowLr], [x[1] for x in metabalance_results_lowLr], capsize=2, marker='o', color='royalblue', label='Metabalance (lr=2e-4)')
+    plt.errorbar(levels, [x[0] for x in baseline_results_lowLr], [x[1] for x in baseline_results_lowLr], capsize=2, marker='.', color='cornflowerblue', label='Baseline (lr=2e-4)')
+    plt.errorbar(levels, [x[0] for x in metabalance_results_highLr], [x[1] for x in metabalance_results_highLr], capsize=2, marker='X', color='indianred', label='Metabalance (lr=2e-3)')
+    plt.errorbar(levels, [x[0] for x in baseline_results_highLr], [x[1] for x in baseline_results_highLr], capsize=2, marker='x', color='lightcoral', label='Baseline (lr=2e-3)')
 
     plt.xlabel('Percent of Dataset')
     plt.ylabel('Accuracy (%)')
@@ -83,7 +84,7 @@ def get_performance(df, keywords):
     performance_by_run = df.loc[59, desired_columns]
     #print(performance_by_run)
     avg_performance = performance_by_run.mean()
-    std_performance = performance_by_run.std()
+    std_performance = stats.sem(performance_by_run)
     #print(avg_performance)
     return avg_performance, std_performance
 
