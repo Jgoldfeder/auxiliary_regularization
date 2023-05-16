@@ -9,13 +9,14 @@ def main(args):
     for level in levels:
         improvement = calc_improvement_over_baseline(args, level)
         percent_improvement.append(improvement)
-        plt.text(level - 0.1, improvement + 0.02, ('+' if improvement > 0 else '') + str(improvement), fontsize=7)
+        plt.text(level + 0.5, improvement, ('+' if improvement > 0 else '') + str(improvement) + '%', fontsize=7)
     plt.plot(levels, percent_improvement, marker='o')
     plt.xlabel('Percent of Dataset')
     plt.ylabel('Percent Improvement in {} of\nBernoulli Auxiliary Labels over Baseline'.format(args.metric_name))
     plt.title(args.dataset)
     plt.axhline(y=0, color = 'r', linestyle = '--', alpha=0.5)
     plt.grid()
+    plt.savefig('{}_transfer_lowData.pdf'.format(args.dataset))
     plt.show()
     return
 
